@@ -5,7 +5,7 @@ edition = "2021"
 
 authors = ["kiki-kanri"]
 categories = ["utils"]
-description = ""
+description = "A utility library to simplify Rust development."
 exclude = [
     ".gitignore",
     ".vscode/",
