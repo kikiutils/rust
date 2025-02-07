@@ -4,7 +4,7 @@ version = "0.0.0"
 edition = "2021"
 
 authors = ["kiki-kanri"]
-categories = ["utils"]
+categories = []
 description = "A utility library to simplify Rust development."
 exclude = [
     ".gitignore",
