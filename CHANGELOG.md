@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.2.0
+
+[compare changes](https://github.com/kiki-kanri/kikiutils-rust/compare/v0.1.0...v0.2.0)
+
+### 🚀 Enhancements
+
+- Add `init_tracing_with_local_time_format` utils and related dependencies ([5aff631](https://github.com/kiki-kanri/kikiutils-rust/commit/5aff631))
+
+### 🎨 Styles
+
+- Add `rustfmt.toml` and format code ([fd2104f](https://github.com/kiki-kanri/kikiutils-rust/commit/fd2104f))
+
+### ❤️ Contributors
+
+- kiki-kanri
+
 ## v0.1.0
 
 [compare changes](https://github.com/kiki-kanri/kikiutils-rust/compare/28ddbea...v0.1.0)
