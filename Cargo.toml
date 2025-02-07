@@ -1,0 +1,25 @@
+[package]
+name = "kikiutils"
+version = "0.0.0"
+edition = "2021"
+
+authors = ["kiki-kanri"]
+categories = ["utils"]
+description = ""
+exclude = [
+    ".gitignore",
+    ".vscode/",
+    "Makefile.toml",
+    "modify-files-permissions.sh",
+    "package.json",
+    "release.sh",
+]
+
+keywords = ["utils"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/kiki-kanri/kikiutils-rust"
+
+[dependencies]
+anyhow = "1.0.95"
+tokio = { version = "1.43.0", features = ["full"] }
