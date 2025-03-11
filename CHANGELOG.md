@@ -2,13 +2,13 @@
 
 ## v0.2.1
 
-[compare changes](https://github.com/kiki-kanri/kikiutils-rust/compare/v0.2.0...v0.2.1)
+[compare changes](https://github.com/kikiutils/rust/compare/v0.2.0...v0.2.1)
 
 ### 🏡 Chore
 
-- Update dependencies ([447e644](https://github.com/kiki-kanri/kikiutils-rust/commit/447e644))
-- Update repository URL ([91c6f5e](https://github.com/kiki-kanri/kikiutils-rust/commit/91c6f5e))
-- Set `hideAuthorEmail` arg in changelogen command ([f2a5b92](https://github.com/kiki-kanri/kikiutils-rust/commit/f2a5b92))
+- Update dependencies ([447e644](https://github.com/kikiutils/rust/commit/447e644))
+- Update repository URL ([91c6f5e](https://github.com/kikiutils/rust/commit/91c6f5e))
+- Set `hideAuthorEmail` arg in changelogen command ([f2a5b92](https://github.com/kikiutils/rust/commit/f2a5b92))
 
 ### ❤️ Contributors
 
