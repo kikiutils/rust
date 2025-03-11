@@ -18,7 +18,7 @@ exclude = [
 keywords = ["utils"]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/kiki-kanri/kikiutils-rust"
+repository = "https://github.com/kikiutils/rust"
 
 [dependencies]
 anyhow = "1.0.97"
