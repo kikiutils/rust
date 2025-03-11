@@ -8,10 +8,10 @@ if ! git diff-index --quiet HEAD --; then
 fi
 
 cargo test
-pnpx @kikiutils/changelogen --bump
+pnpx @kikiutils/changelogen --bump --hideAuthorEmail
 new_version=$(node -p "require('./package.json').version")
 cargo set-version "$new_version"
 git checkout -- ./CHANGELOG.md ./package.json
 git add ./Cargo.toml
-pnpx @kikiutils/changelogen --push --release
+pnpx @kikiutils/changelogen --hideAuthorEmail --push --release
 cargo publish
