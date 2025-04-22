@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.2.2
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.2.1...v0.2.2)
+
+### 🏡 Chore
+
+- Update CHANGELOG repository URL ([0dd73f4](https://github.com/kikiutils/rust/commit/0dd73f4))
+- Upgrade dependencies ([699ace5](https://github.com/kikiutils/rust/commit/699ace5))
+- Set rustfmt `max_width` to 120 ([0bb5135](https://github.com/kikiutils/rust/commit/0bb5135))
+- Update `modify-files-permissions.sh` script ([c198025](https://github.com/kikiutils/rust/commit/c198025))
+
+### ❤️ Contributors
+
+- kiki-kanri
+
 ## v0.2.1
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.2.0...v0.2.1)
