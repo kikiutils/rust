@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.3.0
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.2.2...v0.3.0)
+
+### 🚀 Enhancements
+
+- Add `OptionAnyhowExt` and `ResultAnyhowExt` trait and impl ([319cbd2](https://github.com/kikiutils/rust/commit/319cbd2))
+
+### ❤️ Contributors
+
+- kiki-kanri
+
 ## v0.2.2
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.2.1...v0.2.2)
