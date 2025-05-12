@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -e
+
 if ! git diff-index --quiet HEAD --; then
     echo 'Error: There are uncommitted changes in your working directory.'
     echo 'Please commit or discard the changes before proceeding.'
