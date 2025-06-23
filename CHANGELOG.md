@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.3.1
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.3.0...v0.3.1)
+
+### 💅 Refactors
+
+- Change `tokio::select!` to use and `select!` ([685bfec](https://github.com/kikiutils/rust/commit/685bfec))
+
+### 🏡 Chore
+
+- Update `.gitignore` and `modify-files-permissions.sh` ([520a2ac](https://github.com/kikiutils/rust/commit/520a2ac))
+- Format `release.sh` ([2e0a027](https://github.com/kikiutils/rust/commit/2e0a027))
+- Upgrade dependencies ([bc20e2a](https://github.com/kikiutils/rust/commit/bc20e2a))
+- Upgrade dependencies ([e98920a](https://github.com/kikiutils/rust/commit/e98920a))
+
+### ❤️ Contributors
+
+- kiki-kanri
+
 ## v0.3.0
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.2.2...v0.3.0)
