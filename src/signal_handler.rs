@@ -1,5 +1,5 @@
 use anyhow::{Error, Result};
-use tokio::signal;
+use tokio::{select, signal};
 
 pub async fn wait_for_shutdown_signal() -> Result<()> {
     let ctrl_c = async { Ok::<(), Error>(signal::ctrl_c().await?) };
@@ -11,7 +11,7 @@ pub async fn wait_for_shutdown_signal() -> Result<()> {
     };
 
     #[cfg(unix)]
-    tokio::select! {
+    select! {
         _ = ctrl_c => {},
         _ = sigterm => {},
     }
