@@ -27,9 +27,9 @@ where
     let task = tokio::spawn(async move {
         let result = AssertUnwindSafe(future).catch_unwind().await;
         TASK_ABORT_HANDLES.remove(&task_abort_handle_id_clone);
-        return result;
+        result
     });
 
     TASK_ABORT_HANDLES.insert(task_abort_handle_id, task.abort_handle());
-    return task;
+    task
 }

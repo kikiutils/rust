@@ -7,7 +7,7 @@ pub async fn wait_for_shutdown_signal() -> Result<()> {
     let sigterm = async {
         let mut term_signal = signal::unix::signal(signal::unix::SignalKind::terminate())?;
         term_signal.recv().await;
-        return Ok::<(), Error>(());
+        Ok::<(), Error>(())
     };
 
     #[cfg(unix)]
@@ -18,5 +18,5 @@ pub async fn wait_for_shutdown_signal() -> Result<()> {
 
     #[cfg(not(unix))]
     ctrl_c.await?;
-    return Ok(());
+    Ok(())
 }
