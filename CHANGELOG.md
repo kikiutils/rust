@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.3
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.3.2...v0.3.3)
+
+### 🏡 Chore
+
+- Update dependencies and tidy up features ([3b74070](https://github.com/kikiutils/rust/commit/3b74070))
+- Update release script ([bae5a47](https://github.com/kikiutils/rust/commit/bae5a47))
+
+### ❤️ Contributors
+
+- kiki-kanri
+
 ## v0.3.2
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.3.1...v0.3.2)
