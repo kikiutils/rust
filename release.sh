@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 if ! git diff-index --quiet HEAD --; then
     echo 'Error: There are uncommitted changes in your working directory.'
