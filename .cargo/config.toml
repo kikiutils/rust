@@ -1,0 +1,6 @@
+[alias]
+dev = "watch -x run"
+format = "fmt --all -- --check"
+format-fix = "fmt --all"
+lint = "clippy --all-features --all-targets -- -D warnings"
+lint-fix = "clippy --all-features --all-targets --fix -- -D warnings"
