@@ -1,4 +1,10 @@
 pub mod extensions;
-pub mod signal_handler;
-pub mod task_manager;
+
+#[cfg(feature = "signal")]
+pub mod signal;
+
+#[cfg(feature = "task")]
+pub mod task;
+
+#[cfg(feature = "tracing")]
 pub mod tracing;
