@@ -95,3 +95,9 @@ impl TaskManager {
         user_task
     }
 }
+
+impl Default for TaskManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
