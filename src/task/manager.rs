@@ -1,4 +1,5 @@
 use dashmap::DashMap;
+use futures::future::join_all;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -29,6 +30,41 @@ impl TaskManager {
             handles: Arc::new(DashMap::new()),
             next_id: AtomicU64::new(0),
         }
+    }
+
+    // Private methods
+    async fn drain_and_join_existing<F: Fn(&AbortHandle)>(&self, f: F) {
+        let mut join_handles = Vec::new();
+        let keys = self.handles.iter().map(|kv| *kv.key()).collect::<Vec<_>>();
+        for key in keys {
+            if let Some((_, (abort, handle))) = self.handles.remove(&key) {
+                f(&abort);
+                join_handles.push(handle);
+            }
+        }
+
+        join_all(join_handles).await;
+    }
+
+    // Public methods
+    pub fn abort_existing(&self) {
+        self.handles.iter().for_each(|kv| kv.0.abort());
+    }
+
+    pub async fn abort_and_join_existing(&self) {
+        self.drain_and_join_existing(|abort| abort.abort()).await;
+    }
+
+    pub fn has_tasks(&self) -> bool {
+        !self.is_empty()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.handles.is_empty()
+    }
+
+    pub async fn join_existing(&self) {
+        self.drain_and_join_existing(|_| {}).await;
     }
 
     pub fn spawn<F, T>(&self, future: F) -> JoinHandle<T>
