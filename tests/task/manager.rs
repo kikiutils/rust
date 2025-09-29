@@ -20,7 +20,6 @@ async fn abort_and_join_clears_tasks() {
     spawn_sleeping_tasks(&manager, Duration::from_secs(10));
 
     manager.abort_and_join_existing().await;
-
     assert!(manager.is_empty());
 }
 
@@ -32,7 +31,30 @@ async fn abort_existing_then_join() {
 
     manager.abort_existing();
     manager.join_existing().await;
+    assert!(manager.is_empty());
+}
 
+#[tokio::test]
+async fn default_and_new_are_equivalent() {
+    let manager1 = TaskManager::new();
+    let manager2 = TaskManager::default();
+
+    assert!(manager1.is_empty());
+    assert!(manager2.is_empty());
+}
+
+#[tokio::test]
+async fn has_tasks_reflects_state() {
+    let manager = TaskManager::new();
+
+    assert!(!manager.has_tasks());
+    assert!(manager.is_empty());
+
+    manager.spawn(async { sleep(Duration::from_millis(50)).await });
+    assert!(manager.has_tasks());
+
+    manager.join_existing().await;
+    assert!(!manager.has_tasks());
     assert!(manager.is_empty());
 }
 
@@ -43,7 +65,6 @@ async fn join_existing_completes() {
     spawn_sleeping_tasks(&manager, Duration::from_millis(100));
 
     manager.join_existing().await;
-
     assert!(manager.is_empty());
 }
 
@@ -54,7 +75,6 @@ async fn join_with_no_tasks_is_safe() {
     manager.join_existing().await;
     manager.abort_and_join_existing().await;
     manager.abort_existing();
-
     assert!(manager.is_empty());
 }
 
@@ -84,7 +104,6 @@ async fn mixed_randomized_tasks() {
     }
 
     manager.join_existing().await;
-
     assert!(manager.is_empty());
 }
 
