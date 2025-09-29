@@ -25,10 +25,12 @@ repository = "https://github.com/kikiutils/rust"
 anyhow = { version = "1.0.100", optional = true }
 dashmap = { version = "6.1.0", optional = true }
 futures = { version = "0.3.31", optional = true }
-rand = { version = "0.9.2", optional = true }
 time = { version = "0.3.44", features = ["formatting", "local-offset", "macros"], optional = true }
-tokio = { version = "1.47.1", features = ["macros", "rt", "signal"], optional = true }
+tokio = { version = "1.47.1", features = ["macros", "rt", "signal", "sync"], optional = true }
 tracing-subscriber = { version = "0.3.20", features = ["time"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.47.1", features = ["full"] }
 
 # Features
 [features]
@@ -36,7 +38,7 @@ default = []
 
 anyhow-ext = ["anyhow"]
 signal = ["anyhow", "tokio"]
-task = ["anyhow", "dashmap", "futures", "rand", "tokio"]
+task = ["anyhow", "dashmap", "futures", "tokio"]
 tracing = ["anyhow", "time", "tracing-subscriber"]
 
 all = ["anyhow-ext", "signal", "task", "tracing"]

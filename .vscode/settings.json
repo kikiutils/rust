@@ -1,6 +1,9 @@
 {
-  "editor.formatOnSave": true,
   "[toml]": {
     "editor.formatOnSave": false
-  }
+  },
+  "editor.formatOnSave": true,
+  "rust-analyzer.cargo.features": [
+    "all"
+  ]
 }
