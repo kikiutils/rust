@@ -30,6 +30,7 @@ tokio = { version = "1.47.1", features = ["macros", "rt", "signal", "sync"], opt
 tracing-subscriber = { version = "0.3.20", features = ["time"], optional = true }
 
 [dev-dependencies]
+rand = "0.9.2"
 tokio = { version = "1.47.1", features = ["full"] }
 
 # Features
