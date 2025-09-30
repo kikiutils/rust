@@ -5,7 +5,40 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::spawn;
 use tokio::sync::oneshot::{channel, Sender};
-use tokio::task::{AbortHandle, JoinHandle};
+use tokio::task::{AbortHandle, JoinError, JoinHandle};
+use tokio_util::sync::CancellationToken;
+
+// Managed task
+pub struct ManagedTask<T> {
+    id: u64,
+    handle: JoinHandle<T>,
+    token: Option<CancellationToken>,
+}
+
+impl<T> ManagedTask<T> {
+    pub fn abort(&self) {
+        self.handle.abort();
+    }
+
+    pub fn cancel(&self) -> bool {
+        self.token.as_ref().is_some_and(|t| {
+            t.cancel();
+            true
+        })
+    }
+
+    pub fn id(&self) -> &u64 {
+        &self.id
+    }
+
+    pub fn into_handle(self) -> JoinHandle<T> {
+        self.handle
+    }
+
+    pub async fn join(self) -> Result<T, JoinError> {
+        self.handle.await
+    }
+}
 
 // Notify on drop
 struct NotifyOnDrop(Option<Sender<()>>);
@@ -67,7 +100,7 @@ impl TaskManager {
         self.drain_and_join_existing(|_| {}).await;
     }
 
-    pub fn spawn<F, T>(&self, future: F) -> JoinHandle<T>
+    pub fn spawn<F, T>(&self, future: F) -> ManagedTask<T>
     where
         F: Future<Output = T> + Send + 'static,
         T: Send + 'static,
@@ -92,7 +125,26 @@ impl TaskManager {
         self.handles.insert(task_id, (user_task.abort_handle(), manager_task));
 
         // Return task
-        user_task
+        ManagedTask {
+            id: task_id,
+            handle: user_task,
+            token: None,
+        }
+    }
+
+    pub fn spawn_with_token<F, Fut, T>(&self, f: F) -> ManagedTask<T>
+    where
+        F: FnOnce(CancellationToken) -> Fut + Send + 'static,
+        Fut: Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let token = CancellationToken::new();
+        let task = self.spawn(f(token.clone()));
+        ManagedTask {
+            id: task.id,
+            handle: task.handle,
+            token: Some(token),
+        }
     }
 }
 
