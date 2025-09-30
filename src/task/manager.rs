@@ -4,110 +4,55 @@ use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::spawn;
-use tokio::sync::oneshot::{channel, Sender};
-use tokio::task::{AbortHandle, JoinError, JoinHandle};
+use tokio::sync::oneshot::channel;
 use tokio_util::sync::CancellationToken;
 
-// Managed task
-pub struct ManagedTask<T> {
-    id: u64,
-    handle: JoinHandle<T>,
-    token: Option<CancellationToken>,
+use super::internals::{ManagedTaskEntry, NotifyOnDrop};
+use super::managed::ManagedTask;
+
+enum DrainAction {
+    Abort,
+    Cancel,
+    None,
 }
 
-impl<T> ManagedTask<T> {
-    pub fn abort(&self) {
-        self.handle.abort();
-    }
-
-    pub fn cancel(&self) -> bool {
-        self.token.as_ref().is_some_and(|t| {
-            t.cancel();
-            true
-        })
-    }
-
-    pub fn id(&self) -> &u64 {
-        &self.id
-    }
-
-    pub fn into_handle(self) -> JoinHandle<T> {
-        self.handle
-    }
-
-    pub async fn join(self) -> Result<T, JoinError> {
-        self.handle.await
-    }
-}
-
-// Notify on drop
-struct NotifyOnDrop(Option<Sender<()>>);
-
-impl Drop for NotifyOnDrop {
-    fn drop(&mut self) {
-        if let Some(tx) = self.0.take() {
-            let _ = tx.send(());
-        }
-    }
-}
-
-// Task manager
 pub struct TaskManager {
-    handles: Arc<DashMap<u64, (AbortHandle, JoinHandle<()>)>>,
+    entries: Arc<DashMap<u64, ManagedTaskEntry>>,
     next_id: AtomicU64,
 }
 
 impl TaskManager {
     pub fn new() -> Self {
         Self {
-            handles: Arc::new(DashMap::new()),
+            entries: Arc::new(DashMap::new()),
             next_id: AtomicU64::new(0),
         }
     }
 
     // Private methods
-    async fn drain_and_join_existing<F: Fn(&AbortHandle)>(&self, f: F) {
+    async fn drain_and_join_existing(&self, action: DrainAction) {
         let mut join_handles = Vec::new();
-        let keys = self.handles.iter().map(|kv| *kv.key()).collect::<Vec<_>>();
+        let keys = self.entries.iter().map(|kv| *kv.key()).collect::<Vec<_>>();
         for key in keys {
-            if let Some((_, (abort, handle))) = self.handles.remove(&key) {
-                f(&abort);
-                join_handles.push(handle);
+            if let Some((_, entry)) = self.entries.remove(&key) {
+                match action {
+                    DrainAction::Abort => entry.abort.abort(),
+                    DrainAction::Cancel => {
+                        if let Some(token) = &entry.token {
+                            token.cancel();
+                        }
+                    }
+                    DrainAction::None => {}
+                }
+
+                join_handles.push(entry.handle);
             }
         }
 
         join_all(join_handles).await;
     }
 
-    // Public methods
-    pub fn abort(&self, id: &u64) -> bool {
-        self.handles.get(id).is_some_and(|kv| {
-            kv.0.abort();
-            true
-        })
-    }
-
-    pub fn abort_existing(&self) {
-        self.handles.iter().for_each(|kv| kv.0.abort());
-    }
-
-    pub async fn abort_and_join_existing(&self) {
-        self.drain_and_join_existing(|abort| abort.abort()).await;
-    }
-
-    pub fn has_tasks(&self) -> bool {
-        !self.is_empty()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.handles.is_empty()
-    }
-
-    pub async fn join_existing(&self) {
-        self.drain_and_join_existing(|_| {}).await;
-    }
-
-    pub fn spawn<F, T>(&self, future: F) -> ManagedTask<T>
+    fn spawn_inner<F, T>(&self, future: F, token: Option<CancellationToken>) -> ManagedTask<T>
     where
         F: Future<Output = T> + Send + 'static,
         T: Send + 'static,
@@ -123,20 +68,84 @@ impl TaskManager {
             future.await
         });
 
-        let handles = self.handles.clone();
+        let entries = self.entries.clone();
         let manager_task = spawn(async move {
             let _ = rx.await;
-            handles.remove(&task_id);
+            entries.remove(&task_id);
         });
 
-        self.handles.insert(task_id, (user_task.abort_handle(), manager_task));
+        self.entries.insert(
+            task_id,
+            ManagedTaskEntry {
+                abort: user_task.abort_handle(),
+                handle: manager_task,
+                token: token.clone(),
+            },
+        );
 
         // Return task
         ManagedTask {
             id: task_id,
             handle: user_task,
-            token: None,
+            token,
         }
+    }
+
+    // Public methods
+    pub fn abort(&self, id: &u64) -> bool {
+        self.entries.get(id).is_some_and(|kv| {
+            kv.abort.abort();
+            true
+        })
+    }
+
+    pub fn abort_existing(&self) {
+        self.entries.iter().for_each(|kv| kv.abort.abort());
+    }
+
+    pub async fn abort_and_join_existing(&self) {
+        self.drain_and_join_existing(DrainAction::Abort).await;
+    }
+
+    pub fn cancel(&self, id: &u64) -> bool {
+        self.entries.get(id).is_some_and(|kv| {
+            kv.token.as_ref().is_some_and(|t| {
+                t.cancel();
+                true
+            })
+        })
+    }
+
+    pub fn cancel_existing(&self) {
+        self.entries.iter().for_each(|kv| {
+            if let Some(token) = &kv.token {
+                token.cancel();
+            }
+        });
+    }
+
+    pub async fn cancel_and_join_existing(&self) {
+        self.drain_and_join_existing(DrainAction::Cancel).await;
+    }
+
+    pub fn has_tasks(&self) -> bool {
+        !self.is_empty()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub async fn join_existing(&self) {
+        self.drain_and_join_existing(DrainAction::None).await;
+    }
+
+    pub fn spawn<F, T>(&self, future: F) -> ManagedTask<T>
+    where
+        F: Future<Output = T> + Send + 'static,
+        T: Send + 'static,
+    {
+        self.spawn_inner(future, None)
     }
 
     pub fn spawn_with_token<F, Fut, T>(&self, f: F) -> ManagedTask<T>
@@ -146,12 +155,7 @@ impl TaskManager {
         T: Send + 'static,
     {
         let token = CancellationToken::new();
-        let task = self.spawn(f(token.clone()));
-        ManagedTask {
-            id: task.id,
-            handle: task.handle,
-            token: Some(token),
-        }
+        self.spawn_inner(f(token.clone()), Some(token))
     }
 }
 
