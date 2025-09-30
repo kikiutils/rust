@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.5.0
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.4.0...v0.5.0)
+
+### 💅 Refactors
+
+- ⚠️ Update `TaskManager` ([a52307f](https://github.com/kikiutils/rust/commit/a52307f))
+
+### 🏡 Chore
+
+- Remove unused cargo alias config ([618987f](https://github.com/kikiutils/rust/commit/618987f))
+- Update release script ([5ab9103](https://github.com/kikiutils/rust/commit/5ab9103))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️ Update `TaskManager` ([a52307f](https://github.com/kikiutils/rust/commit/a52307f))
+
+### ❤️ Contributors
+
+- kiki-kanri
+
 ## v0.4.0
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.3.4...v0.4.0)
