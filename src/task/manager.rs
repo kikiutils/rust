@@ -80,6 +80,13 @@ impl TaskManager {
     }
 
     // Public methods
+    pub fn abort(&self, id: &u64) -> bool {
+        self.handles.get(id).is_some_and(|kv| {
+            kv.0.abort();
+            true
+        })
+    }
+
     pub fn abort_existing(&self) {
         self.handles.iter().for_each(|kv| kv.0.abort());
     }
