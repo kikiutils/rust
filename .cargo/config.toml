@@ -1,5 +1,4 @@
 [alias]
-dev = "watch -x run"
 format = "fmt --all -- --check"
 format-fix = "fmt --all"
 lint = "clippy --all-features --all-targets -- -D warnings"
