@@ -1,5 +1,46 @@
 # Changelog
 
+## v0.4.0
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.3.4...v0.4.0)
+
+### 🚀 Enhancements
+
+- Add new methods to the `TaskManager` ([605a814](https://github.com/kikiutils/rust/commit/605a814))
+- Add Default implementation for `TaskManager` ([682777d](https://github.com/kikiutils/rust/commit/682777d))
+- ⚠️ Update TaskManager ([5638e58](https://github.com/kikiutils/rust/commit/5638e58))
+- Add `abort` method to the `TaskManager` ([737f821](https://github.com/kikiutils/rust/commit/737f821))
+
+### 💅 Refactors
+
+- ⚠️ Restructure project files and configure features with all disabled by default ([2d59437](https://github.com/kikiutils/rust/commit/2d59437))
+- ⚠️ Redesign task manager ([ebd8f28](https://github.com/kikiutils/rust/commit/ebd8f28))
+
+### 🏡 Chore
+
+- Disable automatic formatting for TOML files ([caf5375](https://github.com/kikiutils/rust/commit/caf5375))
+- Add `.editorconfig` ([3d0d31c](https://github.com/kikiutils/rust/commit/3d0d31c))
+- Update scripts ([379c6a5](https://github.com/kikiutils/rust/commit/379c6a5))
+- Add cargo alias config ([c84e8ac](https://github.com/kikiutils/rust/commit/c84e8ac))
+- Upgrade dependencies ([5695201](https://github.com/kikiutils/rust/commit/5695201))
+- Update release script ([6f64388](https://github.com/kikiutils/rust/commit/6f64388))
+
+### ✅ Tests
+
+- Update task manager unit tests ([2ff9a28](https://github.com/kikiutils/rust/commit/2ff9a28))
+- Update task manager unit tests ([b01dbaa](https://github.com/kikiutils/rust/commit/b01dbaa))
+- Update task manager unit ([ff4eb1b](https://github.com/kikiutils/rust/commit/ff4eb1b))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️ Update TaskManager ([5638e58](https://github.com/kikiutils/rust/commit/5638e58))
+- ⚠️ Restructure project files and configure features with all disabled by default ([2d59437](https://github.com/kikiutils/rust/commit/2d59437))
+- ⚠️ Redesign task manager ([ebd8f28](https://github.com/kikiutils/rust/commit/ebd8f28))
+
+### ❤️ Contributors
+
+- kiki-kanri
+
 ## v0.3.4
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.3.3...v0.3.4)
