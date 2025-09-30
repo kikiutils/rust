@@ -93,8 +93,8 @@ async fn mixed_randomized_tasks() {
             }
             1 => {
                 // Abort task
-                let handle = manager.spawn(async { sleep(Duration::from_secs(5)).await });
-                handle.abort();
+                let task = manager.spawn(async { sleep(Duration::from_secs(5)).await });
+                task.abort();
             }
             _ => {
                 // Panic task
@@ -111,14 +111,14 @@ async fn mixed_randomized_tasks() {
 async fn spawn_abort_cancels() {
     let manager = TaskManager::new();
 
-    let handle = manager.spawn(async {
+    let task = manager.spawn(async {
         sleep(Duration::from_secs(5)).await;
         99
     });
 
-    handle.abort();
+    task.abort();
 
-    let result = handle.await;
+    let result = task.join().await;
     assert!(result.is_err());
     assert!(result.err().unwrap().is_cancelled());
 }
@@ -127,9 +127,14 @@ async fn spawn_abort_cancels() {
 async fn spawn_multiple_returns_results() {
     let manager = TaskManager::new();
 
-    let handles: Vec<_> = (0..10).map(|i| manager.spawn(async move { i })).collect();
+    let tasks = (0..10).map(|i| manager.spawn(async move { i })).collect::<Vec<_>>();
 
-    let results: Vec<_> = join_all(handles).await.into_iter().map(|r| r.unwrap()).collect();
+    let results = join_all(tasks.into_iter().map(async |t| t.join().await))
+        .await
+        .into_iter()
+        .map(|r| r.unwrap())
+        .collect::<Vec<_>>();
+
     assert_eq!(results, (0..10).collect::<Vec<_>>());
 }
 
@@ -137,9 +142,9 @@ async fn spawn_multiple_returns_results() {
 async fn spawn_panic_propagates() {
     let manager = TaskManager::new();
 
-    let handle = manager.spawn(async { panic!() });
+    let task = manager.spawn(async { panic!() });
 
-    let result = handle.await;
+    let result = task.join().await;
     assert!(result.is_err());
     assert!(result.err().unwrap().is_panic());
 }
@@ -148,8 +153,8 @@ async fn spawn_panic_propagates() {
 async fn spawn_returns_result() {
     let manager = TaskManager::new();
 
-    let handle = manager.spawn(async { 42 });
+    let task = manager.spawn(async { 42 });
 
-    let result = handle.await.unwrap();
+    let result = task.join().await.unwrap();
     assert_eq!(result, 42);
 }
