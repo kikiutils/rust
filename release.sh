@@ -11,7 +11,11 @@ if ! git diff-index --quiet HEAD --; then
     exit 1
 fi
 
+cargo format
+cargo lint
 cargo t --all-features
+cargo b -r --all-features
+
 pnpx @kikiutils/changelogen@latest --bump --hideAuthorEmail
 new_version=$(node -p "require('./package.json').version")
 cargo set-version "$new_version"
