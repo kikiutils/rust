@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.2
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.5.1...v0.5.2)
+
+### 🏡 Chore
+
+- Change package setting from `exclude` to `include` ([840ee89](https://github.com/kikiutils/rust/commit/840ee89))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.5.1
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.5.0...v0.5.1)
