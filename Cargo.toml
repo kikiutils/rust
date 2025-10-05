@@ -6,13 +6,11 @@ edition = "2021"
 authors = ["kiki-kanri"]
 categories = []
 description = "A utility library to simplify Rust development."
-exclude = [
-    ".gitignore",
-    ".vscode/",
-    "Makefile.toml",
-    "modify-files-permissions.sh",
-    "package.json",
-    "release.sh",
+include = [
+  "src/**",
+  "Cargo.toml",
+  "LICENSE*",
+  "README.md",
 ]
 
 keywords = ["utils"]
