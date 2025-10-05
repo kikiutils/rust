@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.5.1
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.5.0...v0.5.1)
+
+### 🚀 Enhancements
+
+- Add methods to `TaskManager` and mark some methods is inline ([1a2355b](https://github.com/kikiutils/rust/commit/1a2355b))
+
+### 💅 Refactors
+
+- Chore: tidy up `src/extensions/anyhow.rs` ([a4c1af6](https://github.com/kikiutils/rust/commit/a4c1af6))
+- Tidy up code ([109c0d0](https://github.com/kikiutils/rust/commit/109c0d0))
+
+### 🏡 Chore
+
+- Update release script ([b49700a](https://github.com/kikiutils/rust/commit/b49700a))
+- Update vscode settings ([4496409](https://github.com/kikiutils/rust/commit/4496409))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.5.0
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.4.0...v0.5.0)
