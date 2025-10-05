@@ -16,10 +16,10 @@ cargo lint
 cargo t --all-features
 cargo b -r --all-features
 
-pnpx @kikiutils/changelogen@latest --bump --hideAuthorEmail
+pnpx changelogen@latest --bump --hideAuthorEmail
 new_version=$(node -p "require('./package.json').version")
 cargo set-version "$new_version"
 git checkout -- ./CHANGELOG.md ./package.json
 git add ./Cargo.toml
-pnpx @kikiutils/changelogen@latest --hideAuthorEmail --push --release
+pnpx changelogen@latest --hideAuthorEmail --push --release
 cargo publish
