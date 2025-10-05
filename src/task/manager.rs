@@ -92,6 +92,7 @@ impl TaskManager {
     }
 
     // Public methods
+    #[inline]
     pub fn abort(&self, id: &u64) -> bool {
         self.entries.get(id).is_some_and(|kv| {
             kv.abort.abort();
@@ -107,6 +108,7 @@ impl TaskManager {
         self.drain_and_join_existing(DrainAction::Abort).await;
     }
 
+    #[inline]
     pub fn cancel(&self, id: &u64) -> bool {
         self.entries.get(id).is_some_and(|kv| {
             kv.token.as_ref().is_some_and(|t| {
@@ -128,10 +130,12 @@ impl TaskManager {
         self.drain_and_join_existing(DrainAction::Cancel).await;
     }
 
+    #[inline]
     pub fn has_tasks(&self) -> bool {
         !self.is_empty()
     }
 
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -140,6 +144,12 @@ impl TaskManager {
         self.drain_and_join_existing(DrainAction::None).await;
     }
 
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    #[inline]
     pub fn spawn<F, T>(&self, future: F) -> ManagedTask<T>
     where
         F: Future<Output = T> + Send + 'static,
@@ -148,6 +158,7 @@ impl TaskManager {
         self.spawn_inner(future, None)
     }
 
+    #[inline]
     pub fn spawn_with_token<F, Fut, T>(&self, f: F) -> ManagedTask<T>
     where
         F: FnOnce(CancellationToken) -> Fut + Send + 'static,
@@ -157,9 +168,15 @@ impl TaskManager {
         let token = CancellationToken::new();
         self.spawn_inner(f(token.clone()), Some(token))
     }
+
+    #[inline]
+    pub fn task_count(&self) -> usize {
+        self.len()
+    }
 }
 
 impl Default for TaskManager {
+    #[inline]
     fn default() -> Self {
         Self::new()
     }
