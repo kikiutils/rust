@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.5
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.5.4...v0.5.5)
+
+### 💅 Refactors
+
+- Modify `wait_for_shutdown_signal` to merge Unix-related blocks and avoid importing `select` on non-Unix platforms ([c728c73](https://github.com/kikiutils/rust/commit/c728c73))
+
+### 🤖 CI
+
+- Change install cargo-llvm-cov method ([66a3c60](https://github.com/kikiutils/rust/commit/66a3c60))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.5.4
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.5.3...v0.5.4)
