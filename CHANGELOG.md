@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.4
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.5.3...v0.5.4)
+
+### 🏡 Chore
+
+- Remove makefile ([d7f0419](https://github.com/kikiutils/rust/commit/d7f0419))
+
+### 🤖 CI
+
+- Add test on release and upload codecov workflow ([d782468](https://github.com/kikiutils/rust/commit/d782468))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.5.3
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.5.2...v0.5.3)
