@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.3
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.5.2...v0.5.3)
+
+### 🎨 Styles
+
+- Update formatting rules related to `use` and reformat all code ([70e593a](https://github.com/kikiutils/rust/commit/70e593a))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.5.2
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.5.1...v0.5.2)
