@@ -1,6 +1,8 @@
 use anyhow::Result;
-use time::macros::format_description;
-use time::UtcOffset;
+use time::{
+    macros::format_description,
+    UtcOffset,
+};
 use tracing_subscriber::fmt::time::OffsetTime;
 
 pub fn init_tracing_with_local_time_format() -> Result<()> {

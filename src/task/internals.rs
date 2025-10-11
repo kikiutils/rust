@@ -1,5 +1,10 @@
-use tokio::sync::oneshot::Sender;
-use tokio::task::{AbortHandle, JoinHandle};
+use tokio::{
+    sync::oneshot::Sender,
+    task::{
+        AbortHandle,
+        JoinHandle,
+    },
+};
 use tokio_util::sync::CancellationToken;
 
 // NotifyOnDrop

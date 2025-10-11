@@ -1,14 +1,29 @@
+use std::{
+    future::Future,
+    sync::{
+        atomic::{
+            AtomicU64,
+            Ordering,
+        },
+        Arc,
+    },
+};
+
 use dashmap::DashMap;
 use futures::future::join_all;
-use std::future::Future;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use tokio::spawn;
-use tokio::sync::oneshot::channel;
+use tokio::{
+    spawn,
+    sync::oneshot::channel,
+};
 use tokio_util::sync::CancellationToken;
 
-use super::internals::{ManagedTaskEntry, NotifyOnDrop};
-use super::managed::ManagedTask;
+use super::{
+    internals::{
+        ManagedTaskEntry,
+        NotifyOnDrop,
+    },
+    managed::ManagedTask,
+};
 
 enum DrainAction {
     Abort,

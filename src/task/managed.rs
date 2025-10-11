@@ -1,4 +1,7 @@
-use tokio::task::{JoinError, JoinHandle};
+use tokio::task::{
+    JoinError,
+    JoinHandle,
+};
 use tokio_util::sync::CancellationToken;
 
 pub struct ManagedTask<T> {

@@ -1,9 +1,12 @@
-use futures::future::join_all;
-use rand::{rng, Rng};
 use std::time::Duration;
-use tokio::time::sleep;
 
+use futures::future::join_all;
 use kikiutils::task::manager::TaskManager;
+use rand::{
+    rng,
+    Rng,
+};
+use tokio::time::sleep;
 
 // Helpers
 fn spawn_sleeping_tasks(manager: &TaskManager, dur: Duration) {

@@ -1,5 +1,9 @@
-use anyhow::{anyhow, Result};
 use std::fmt::Debug;
+
+use anyhow::{
+    anyhow,
+    Result,
+};
 
 // OptionAnyhowExt
 pub trait OptionAnyhowExt<T> {
