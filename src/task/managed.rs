@@ -5,9 +5,9 @@ use tokio::task::{
 use tokio_util::sync::CancellationToken;
 
 pub struct ManagedTask<T> {
-    pub(in crate::task) id: u64,
-    pub(in crate::task) handle: JoinHandle<T>,
-    pub(in crate::task) token: Option<CancellationToken>,
+    pub(super) id: u64,
+    pub(super) handle: JoinHandle<T>,
+    pub(super) token: Option<CancellationToken>,
 }
 
 impl<T> ManagedTask<T> {
