@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.5.6
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.5.5...v0.5.6)
+
+### 💅 Refactors
+
+- Inline some generic type constraints instead of defining them in `where` clauses ([4fc790d](https://github.com/kikiutils/rust/commit/4fc790d))
+- Change `pub(in crate::task)` to `pub(super)` ([9b69e4e](https://github.com/kikiutils/rust/commit/9b69e4e))
+
+### 🏡 Chore
+
+- Upgrade dependencies ([1f25c8c](https://github.com/kikiutils/rust/commit/1f25c8c))
+- Unify feature definitions by using `dep:` prefix for all dependencies ([6b85cdd](https://github.com/kikiutils/rust/commit/6b85cdd))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.5.5
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.5.4...v0.5.5)
