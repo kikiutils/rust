@@ -1,0 +1,32 @@
+[package]
+name = "crate-name"
+version = "0.1.0"
+edition = "2024"
+
+authors = []
+categories = []
+description = ""
+include = [
+  "Cargo.toml",
+  "README.md",
+  "src/**/*",
+]
+
+keywords = []
+license = "MIT"
+readme = "README.md"
+repository = ""
+
+# Dependencies
+[dependencies]
+
+[dev-dependencies]
+
+# Features
+[features]
+## Define features
+
+## Default and alias
+default = []
+all = []
+full = ["all"]
