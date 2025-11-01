@@ -1,16 +1,16 @@
 [package]
 name = "kikiutils"
 version = "0.5.6"
-edition = "2021"
 
 authors = ["kiki-kanri"]
 categories = []
 description = "A utility library to simplify Rust development."
+edition = "2021"
+homepage = "https://github.com/kikiutils/rust"
 include = [
-  "src/**",
   "Cargo.toml",
-  "LICENSE*",
   "README.md",
+  "src/**/*",
 ]
 
 keywords = ["utils"]
@@ -34,12 +34,34 @@ tokio = { version = "1.48.0", features = ["full"] }
 
 # Features
 [features]
-default = []
-
+## Define features
 anyhow-ext = ["dep:anyhow"]
-signal = ["dep:anyhow", "dep:tokio"]
-task = ["dep:anyhow", "dep:dashmap", "dep:futures", "dep:tokio", "dep:tokio-util"]
-tracing = ["dep:anyhow", "dep:time", "dep:tracing-subscriber"]
+signal = [
+  "dep:anyhow",
+  "dep:tokio",
+]
 
-all = ["anyhow-ext", "signal", "task", "tracing"]
+task = [
+  "dep:anyhow",
+  "dep:dashmap",
+  "dep:futures",
+  "dep:tokio",
+  "dep:tokio-util",
+]
+
+tracing = [
+  "dep:anyhow",
+  "dep:time",
+  "dep:tracing-subscriber",
+]
+
+## Default and alias
+default = []
+all = [
+  "anyhow-ext",
+  "signal",
+  "task",
+  "tracing",
+]
+
 full = ["all"]
