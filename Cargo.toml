@@ -1,11 +1,12 @@
 [package]
 name = "crate-name"
 version = "0.1.0"
-edition = "2024"
 
 authors = []
 categories = []
 description = ""
+edition = "2024"
+homepage = ""
 include = [
   "Cargo.toml",
   "README.md",
