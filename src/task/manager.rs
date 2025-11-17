@@ -11,6 +11,7 @@ use std::{
 
 use dashmap::DashMap;
 use futures::future::join_all;
+use rustc_hash::FxBuildHasher;
 use tokio::{
     spawn,
     sync::oneshot::channel,
@@ -32,14 +33,14 @@ enum DrainAction {
 }
 
 pub struct TaskManager {
-    entries: Arc<DashMap<u64, ManagedTaskEntry>>,
+    entries: Arc<DashMap<u64, ManagedTaskEntry, FxBuildHasher>>,
     next_id: AtomicU64,
 }
 
 impl TaskManager {
     pub fn new() -> Self {
         Self {
-            entries: Arc::new(DashMap::new()),
+            entries: Arc::new(DashMap::default()),
             next_id: AtomicU64::new(0),
         }
     }
