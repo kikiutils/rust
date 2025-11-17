@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.7
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.5.6...v0.5.7)
+
+### 🔥 Performance
+
+- Change dashmap hasher in `TaskManager` to `rustc_hash::FxBuildHasher` ([0fd63d5](https://github.com/kikiutils/rust/commit/0fd63d5))
+
+### 🏡 Chore
+
+- Update Cargo.toml ([50b1056](https://github.com/kikiutils/rust/commit/50b1056))
+- Update deps ([4c04ee9](https://github.com/kikiutils/rust/commit/4c04ee9))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.5.6
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.5.5...v0.5.6)
