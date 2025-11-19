@@ -41,7 +41,7 @@ pub fn init_tracing_with_local_time_format() -> Result<()> {
 
 pub fn make_tracing_fmt_layer_with_local_time() -> Result<WithLocalTimeLayer> {
     let local_time_offset = UtcOffset::current_local_offset()?;
-    let tracing_time_format = format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]");
+    let tracing_time_format = format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:6]");
     let tracing_timer = OffsetTime::new(local_time_offset, tracing_time_format);
     Ok(layer().with_timer(tracing_timer))
 }
