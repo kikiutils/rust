@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.8
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.5.7...v0.5.8)
+
+### 🚀 Enhancements
+
+- Split `fmt` creation from `init_tracing_with_local_time_format` into separate function returning a layer; add `init_tracing_with_layer` and `make_tracing_fmt_layer_with_local_time` ([2d6c88d](https://github.com/kikiutils/rust/commit/2d6c88d))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.5.7
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.5.6...v0.5.7)
