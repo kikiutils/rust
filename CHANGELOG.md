@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.9
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.5.8...v0.5.9)
+
+### 💅 Refactors
+
+- Update `make_tracing_fmt_layer_with_local_time` to return a concrete type instead of using a trait ([b72f6fd](https://github.com/kikiutils/rust/commit/b72f6fd))
+
+### 🏡 Chore
+
+- Lint code ([95b7641](https://github.com/kikiutils/rust/commit/95b7641))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.5.8
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.5.7...v0.5.8)
