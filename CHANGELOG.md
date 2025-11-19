@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.10
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.5.9...v0.5.10)
+
+### 🏡 Chore
+
+- Fix decimal precision for seconds formatting in `make_tracing_fmt_layer_with_local_time` ([a08695f](https://github.com/kikiutils/rust/commit/a08695f))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.5.9
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.5.8...v0.5.9)
