@@ -37,6 +37,7 @@ tokio = { version = "1.48.0", features = ["full"] }
 [features]
 ## Define features
 anyhow-ext = ["dep:anyhow"]
+atomic-enum = ["dep:anyhow"]
 signal = [
   "dep:anyhow",
   "dep:tokio",
@@ -60,6 +61,7 @@ tracing = [
 default = []
 all = [
   "anyhow-ext",
+  "atomic-enum",
   "signal",
   "task",
   "tracing",
