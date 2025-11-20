@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.11
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.5.10...v0.5.11)
+
+### 🚀 Enhancements
+
+- Add `AtomicEnum` struct ([8569432](https://github.com/kikiutils/rust/commit/8569432))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.5.10
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.5.9...v0.5.10)
