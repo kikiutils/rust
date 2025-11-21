@@ -13,12 +13,12 @@ use anyhow::{
 };
 
 // Structs
-pub struct AtomicEnum<T: Eq + Into<u8> + PartialEq + TryFrom<u8>> {
+pub struct AtomicEnumCell<T: Eq + Into<u8> + PartialEq + TryFrom<u8>> {
     _marker: PhantomData<T>,
     inner: AtomicU8,
 }
 
-impl<T: Eq + Into<u8> + PartialEq + TryFrom<u8>> AtomicEnum<T> {
+impl<T: Eq + Into<u8> + PartialEq + TryFrom<u8>> AtomicEnumCell<T> {
     #[inline]
     pub fn new(value: T) -> Self {
         Self {

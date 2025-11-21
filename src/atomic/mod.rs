@@ -1,2 +1,2 @@
-#[cfg(feature = "atomic-enum")]
-pub mod r#enum;
+#[cfg(feature = "atomic-enum-cell")]
+pub mod enum_cell;
