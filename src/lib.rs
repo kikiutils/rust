@@ -1,14 +1,8 @@
-// Other crates re-exports
-#[cfg(feature = "atomic-enum-cell")]
-pub use num_enum::{
-    IntoPrimitive,
-    TryFromPrimitive,
-};
-
-// This crate exports
 pub mod atomic;
 
 pub mod extensions;
+
+pub mod re_exports;
 
 #[cfg(feature = "signal")]
 pub mod signal;
