@@ -43,6 +43,11 @@ atomic-enum-cell = [
   "dep:num_enum",
 ]
 
+fx-collections = [
+  "dep:dashmap",
+  "dep:rustc-hash",
+]
+
 signal = [
   "dep:anyhow",
   "dep:tokio",
@@ -68,6 +73,7 @@ default = []
 all = [
   "anyhow-ext",
   "atomic-enum-cell",
+  "fx-collections",
   "signal",
   "task",
   "tracing",
