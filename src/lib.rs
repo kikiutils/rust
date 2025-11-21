@@ -2,8 +2,6 @@ pub mod atomic;
 
 pub mod extensions;
 
-pub mod re_exports;
-
 #[cfg(feature = "signal")]
 pub mod signal;
 
