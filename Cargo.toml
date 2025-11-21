@@ -1,6 +1,6 @@
 [package]
 name = "kikiutils"
-version = "0.5.11"
+version = "0.6.0"
 
 authors = ["kiki-kanri"]
 categories = []

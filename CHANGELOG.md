@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.6.0
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.5.11...v0.6.0)
+
+### 🚀 Enhancements
+
+- Add `IntoPrimitive` and `TryFromPrimitive` re-exports from `num_enum` crate ([c41a18a](https://github.com/kikiutils/rust/commit/c41a18a))
+- Add `fx-collections` types ([a8f4ea8](https://github.com/kikiutils/rust/commit/a8f4ea8))
+
+### 💅 Refactors
+
+- ⚠️  Rename `AtomicEnum` to `AtomicEnumCell` ([18ce124](https://github.com/kikiutils/rust/commit/18ce124))
+
+### 🏡 Chore
+
+- Make `rustc-hash` crate optional ([ef7bb37](https://github.com/kikiutils/rust/commit/ef7bb37))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️  Rename `AtomicEnum` to `AtomicEnumCell` ([18ce124](https://github.com/kikiutils/rust/commit/18ce124))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.5.11
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.5.10...v0.5.11)
