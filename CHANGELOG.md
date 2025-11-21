@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.2
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.7.1...v0.7.2)
+
+### 🏡 Chore
+
+- Remove `num_enum` re-exports ([4e67da3](https://github.com/kikiutils/rust/commit/4e67da3))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.7.1
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.7.0...v0.7.1)
