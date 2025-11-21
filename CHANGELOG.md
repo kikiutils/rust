@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.7.0
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.6.0...v0.7.0)
+
+### 💅 Refactors
+
+- ⚠️  Move `num_enum` re-exports to single file ([b4fbbd2](https://github.com/kikiutils/rust/commit/b4fbbd2))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️  Move `num_enum` re-exports to single file ([b4fbbd2](https://github.com/kikiutils/rust/commit/b4fbbd2))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.6.0
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.5.11...v0.6.0)
