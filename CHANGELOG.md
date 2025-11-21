@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.1
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.7.0...v0.7.1)
+
+### 🚀 Enhancements
+
+- Add `num_enum_derive` crate and re-exports ([d02d814](https://github.com/kikiutils/rust/commit/d02d814))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.7.0
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.6.0...v0.7.0)
