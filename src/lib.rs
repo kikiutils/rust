@@ -1,3 +1,9 @@
+#[cfg(feature = "atomic-enum-cell")]
+pub use num_enum::{
+    IntoPrimitive,
+    TryFromPrimitive,
+};
+
 pub mod atomic;
 pub mod extensions;
 
