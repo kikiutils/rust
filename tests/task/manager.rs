@@ -4,7 +4,7 @@ use futures::future::join_all;
 use kikiutils::task::manager::TaskManager;
 use rand::{
     rng,
-    Rng,
+    RngExt,
 };
 use tokio::time::sleep;
 
