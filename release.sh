@@ -11,7 +11,7 @@ if ! git diff-index --quiet HEAD --; then
     exit 1
 fi
 
-cargo format
+cargo +nightly fmt --all -- --check
 cargo lint
 cargo t --all-features
 cargo b -r --all-features
