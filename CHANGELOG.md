@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.7.3
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.7.2...v0.7.3)
+
+### 🏡 Chore
+
+- Update deps ([38b4b70](https://github.com/kikiutils/rust/commit/38b4b70))
+- Replace `DashMap` with `FxDashMap` type alias ([16443ab](https://github.com/kikiutils/rust/commit/16443ab))
+- Update cargo alias ([3577a55](https://github.com/kikiutils/rust/commit/3577a55))
+- Update vscode settings ([4db069d](https://github.com/kikiutils/rust/commit/4db069d))
+- Update deps ([8d31826](https://github.com/kikiutils/rust/commit/8d31826))
+- Update release script ([a8b2e40](https://github.com/kikiutils/rust/commit/a8b2e40))
+
+### 🤖 CI
+
+- Add test workflow template file ([305020b](https://github.com/kikiutils/rust/commit/305020b))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.7.2
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.7.1...v0.7.2)
