@@ -1,17 +1,26 @@
+[unstable]
+profile-rustflags = true
+
 [alias]
 coverage = "llvm-cov --all-features --color always"
 coverage-generate = "llvm-cov --all-features --lcov --output-path ./lcov.info"
 lint = "clippy --all-features --all-targets -- -D warnings"
 lint-fix = "clippy --all-features --all-targets --fix -- -D warnings"
 
-[build]
-rustflags = [
-#   "-C", "link-arg=-fuse-ld=mold",
-  "-C", "link-arg=-Wl,--icf=all",
-#   "-C", "symbol-mangling-version=v0",
-#   "-C", "target-cpu=native",
-#   "--cfg", "reqwest_unstable",
-]
-
 [net]
 git-fetch-with-cli = true
+
+[profile.dev]
+rustflags = [
+  "-C", "link-arg=-fuse-ld=mold",
+  # "--cfg", "reqwest_unstable",
+]
+
+[profile.release]
+rustflags = [
+  "-C", "link-arg=-fuse-ld=mold",
+  "-C", "link-arg=-Wl,--icf=all",
+  "-C", "relro-level=full",
+  # "-C", "target-cpu=native",
+  # "--cfg", "reqwest_unstable",
+]
