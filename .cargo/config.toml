@@ -26,3 +26,15 @@ rustflags = [
   # "-C", "target-cpu=native",
   # "--cfg", "reqwest_unstable",
 ]
+
+# [target.'cfg(target_os = "linux")']
+# rustflags = [
+# ]
+
+# [target.'cfg(target_os = "macos")']
+# rustflags = [
+# ]
+
+# [target.'cfg(target_env = "msvc")']
+# rustflags = [
+# ]
