@@ -11,10 +11,10 @@ if [ -n "$(git status --porcelain)" ]; then
     exit 1
 fi
 
-cargo +nightly fmt --all -- --check
+./fmt.sh --check
 cargo lint
 cargo t --all-features
-cargo b -r --all-features
+cargo b --all-features
 
 pnpx changelogen@latest --bump --hideAuthorEmail
 new_version=$(node -p "require('./package.json').version")
