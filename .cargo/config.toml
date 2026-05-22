@@ -41,10 +41,3 @@ rustflags = [
 rustflags = [
   "-C", "link-arg=-fuse-ld=mold",
 ]
-
-# [target.x86_64-unknown-linux-musl]
-# linker = "musl-gcc"
-# rustflags = [
-#   # Usually redundant: x86_64-unknown-linux-musl defaults to static CRT.
-#   # "-C", "target-feature=+crt-static",
-# ]
