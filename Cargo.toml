@@ -36,7 +36,6 @@ tokio = { version = "1.52.3", features = ["full"] }
 # Features
 [features]
 ## Define features
-anyhow-ext = ["dep:anyhow"]
 atomic-enum-cell = ["dep:anyhow"]
 fx-collections = [
   "dep:dashmap",
@@ -66,7 +65,6 @@ tracing = [
 ## Default and alias
 default = []
 all = [
-  "anyhow-ext",
   "atomic-enum-cell",
   "fx-collections",
   "signal",
