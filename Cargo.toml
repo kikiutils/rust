@@ -60,11 +60,10 @@ signal = [
 
 task = [
   "dep:anyhow",
-  "dep:dashmap",
   "dep:futures",
-  "dep:rustc-hash",
   "dep:tokio",
   "dep:tokio-util",
+  "fx-collections",
 ]
 
 tracing = [
