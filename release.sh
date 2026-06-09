@@ -11,7 +11,7 @@ if [ -n "$(git status --porcelain)" ]; then
     exit 1
 fi
 
-cargo +nightly fmt --all -- --check
+cargo format
 cargo lint
 cargo t --all-features
 cargo b --all-features
