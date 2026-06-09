@@ -1,5 +1,59 @@
 # Changelog
 
+## v0.8.0
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.7.3...v0.8.0)
+
+### 🚀 Enhancements
+
+- **global-allocator:** Add platform allocator alias ([d75ebcd](https://github.com/kikiutils/rust/commit/d75ebcd))
+
+### 🩹 Fixes
+
+- **scripts:** Preserve entrypoint log prefixes ([b48c56c](https://github.com/kikiutils/rust/commit/b48c56c))
+- **task:** Enable fx collections feature ([c972479](https://github.com/kikiutils/rust/commit/c972479))
+
+### 💅 Refactors
+
+- ⚠️  Remove `anyhow-ext` feat and related files ([22d342d](https://github.com/kikiutils/rust/commit/22d342d))
+- **task:** ⚠️  Simplify lifecycle tracking ([63846e6](https://github.com/kikiutils/rust/commit/63846e6))
+
+### 🏡 Chore
+
+- Update release script ([ea640cc](https://github.com/kikiutils/rust/commit/ea640cc))
+- Update cargo config ([330e4ed](https://github.com/kikiutils/rust/commit/330e4ed))
+- Set build rustflags and release profile configs ([35839b5](https://github.com/kikiutils/rust/commit/35839b5))
+- Add fmt script and update release script ([a956ad0](https://github.com/kikiutils/rust/commit/a956ad0))
+- Add `rust-toolchain.toml` to use nightly version and update vscode settings ([6b261ba](https://github.com/kikiutils/rust/commit/6b261ba))
+- Configure profile-specific `rustflags` in `cargo.toml` for dev and release ([0624e2f](https://github.com/kikiutils/rust/commit/0624e2f))
+- Remove fmt script and update cargo alias ([2a9ad8c](https://github.com/kikiutils/rust/commit/2a9ad8c))
+- Update `.cargo/config.toml`, add multi-platform example rustflags ([6d0c420](https://github.com/kikiutils/rust/commit/6d0c420))
+- Add `.gitattributes` ([a7d2a67](https://github.com/kikiutils/rust/commit/a7d2a67))
+- Update cargo config, add build release scripts and bump toolchain channel to 260515 ([510c6cf](https://github.com/kikiutils/rust/commit/510c6cf))
+- Update scripts and configs ([fc8d7bb](https://github.com/kikiutils/rust/commit/fc8d7bb))
+- Update release build scripts ([a2812b6](https://github.com/kikiutils/rust/commit/a2812b6))
+- Update rust toolchain nightly date to 26-06-01 ([7858ac2](https://github.com/kikiutils/rust/commit/7858ac2))
+- Add `.omx/` to `.gitignore` ([3f01e6d](https://github.com/kikiutils/rust/commit/3f01e6d))
+- Add `upgrade-dependencies.sh` script ([7ab5176](https://github.com/kikiutils/rust/commit/7ab5176))
+- Update `upgrade-dependencies.sh` script ([d7d3e79](https://github.com/kikiutils/rust/commit/d7d3e79))
+- Upgrade deps ([1f61c6e](https://github.com/kikiutils/rust/commit/1f61c6e))
+- Update `release.sh` ([f6892db](https://github.com/kikiutils/rust/commit/f6892db))
+
+### 🤖 CI
+
+- Rename `release-test-codecov.yaml` to `continuous-verification.yaml` ([d262250](https://github.com/kikiutils/rust/commit/d262250))
+- Update `codecov/codecov-action` version to v6 ([9c3e6aa](https://github.com/kikiutils/rust/commit/9c3e6aa))
+- Update `continuous-verification` workflow ([752c1fd](https://github.com/kikiutils/rust/commit/752c1fd))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️  Remove `anyhow-ext` feat and related files ([22d342d](https://github.com/kikiutils/rust/commit/22d342d))
+- **task:** ⚠️  Simplify lifecycle tracking ([63846e6](https://github.com/kikiutils/rust/commit/63846e6))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.7.3
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.7.2...v0.7.3)
