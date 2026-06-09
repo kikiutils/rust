@@ -22,8 +22,8 @@ impl<T> ManagedTask<T> {
         })
     }
 
-    pub fn id(&self) -> &u64 {
-        &self.id
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
     pub fn into_handle(self) -> JoinHandle<T> {

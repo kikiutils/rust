@@ -9,31 +9,52 @@ use std::{
     },
 };
 
-use futures::future::join_all;
 use tokio::{
     spawn,
-    sync::oneshot::channel,
+    task::AbortHandle,
 };
 use tokio_util::sync::CancellationToken;
 
-use super::{
-    internals::{
-        ManagedTaskEntry,
-        NotifyOnDrop,
-    },
-    managed::ManagedTask,
-};
+use super::managed::ManagedTask;
 use crate::types::fx_collections::FxDashMap;
 
+// Enums
 enum DrainAction {
     Abort,
     Cancel,
     None,
 }
 
+// Structs
+struct CleanupOnDrop {
+    completion: CancellationToken,
+    entries: Arc<FxDashMap<u64, ManagedTaskEntry>>,
+    id: u64,
+}
+
+impl Drop for CleanupOnDrop {
+    fn drop(&mut self) {
+        self.completion.cancel();
+        self.entries.remove(&self.id);
+    }
+}
+
+struct ManagedTaskEntry {
+    abort: AbortHandle,
+    completion: CancellationToken,
+    token: Option<CancellationToken>,
+}
+
 pub struct TaskManager {
     entries: Arc<FxDashMap<u64, ManagedTaskEntry>>,
     next_id: AtomicU64,
+}
+
+impl Default for TaskManager {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TaskManager {
@@ -46,7 +67,7 @@ impl TaskManager {
 
     // Private methods
     async fn drain_and_join_existing(&self, action: DrainAction) {
-        let mut join_handles = Vec::new();
+        let mut completion_tokens = Vec::new();
         let keys = self.entries.iter().map(|kv| *kv.key()).collect::<Vec<_>>();
         for key in keys {
             if let Some((_, entry)) = self.entries.remove(&key) {
@@ -60,11 +81,13 @@ impl TaskManager {
                     DrainAction::None => {}
                 }
 
-                join_handles.push(entry.handle);
+                completion_tokens.push(entry.completion);
             }
         }
 
-        join_all(join_handles).await;
+        for token in completion_tokens {
+            token.cancelled().await;
+        }
     }
 
     fn spawn_inner<F, T>(&self, future: F, token: Option<CancellationToken>) -> ManagedTask<T>
@@ -75,28 +98,33 @@ impl TaskManager {
         // Generate task id
         let task_id = self.next_id.fetch_add(1, Ordering::Relaxed);
 
-        // Spawn tasks and insert them into the map
-        let (tx, rx) = channel::<()>();
-        let guard = NotifyOnDrop(Some(tx));
-        let user_task = spawn(async move {
-            let _guard = guard;
-            future.await
-        });
-
+        // Spawn the task behind a startup gate so cleanup cannot run before the entry exists.
         let entries = self.entries.clone();
-        let manager_task = spawn(async move {
-            let _ = rx.await;
-            entries.remove(&task_id);
+        let start = CancellationToken::new();
+        let completion = CancellationToken::new();
+        let cleanup = CleanupOnDrop {
+            entries: entries.clone(),
+            id: task_id,
+            completion: completion.clone(),
+        };
+
+        let task_start = start.clone();
+        let user_task = spawn(async move {
+            let _cleanup = cleanup;
+            task_start.cancelled().await;
+            future.await
         });
 
         self.entries.insert(
             task_id,
             ManagedTaskEntry {
                 abort: user_task.abort_handle(),
-                handle: manager_task,
+                completion,
                 token: token.clone(),
             },
         );
+
+        start.cancel();
 
         // Return task
         ManagedTask {
@@ -108,8 +136,8 @@ impl TaskManager {
 
     // Public methods
     #[inline]
-    pub fn abort(&self, id: &u64) -> bool {
-        self.entries.get(id).is_some_and(|kv| {
+    pub fn abort(&self, id: u64) -> bool {
+        self.entries.get(&id).is_some_and(|kv| {
             kv.abort.abort();
             true
         })
@@ -124,8 +152,8 @@ impl TaskManager {
     }
 
     #[inline]
-    pub fn cancel(&self, id: &u64) -> bool {
-        self.entries.get(id).is_some_and(|kv| {
+    pub fn cancel(&self, id: u64) -> bool {
+        self.entries.get(&id).is_some_and(|kv| {
             kv.token.as_ref().is_some_and(|t| {
                 t.cancel();
                 true
@@ -187,12 +215,5 @@ impl TaskManager {
     #[inline]
     pub fn task_count(&self) -> usize {
         self.len()
-    }
-}
-
-impl Default for TaskManager {
-    #[inline]
-    fn default() -> Self {
-        Self::new()
     }
 }
