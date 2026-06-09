@@ -29,6 +29,12 @@ tokio = { version = "1.52.3", features = ["macros", "rt", "signal", "sync"], opt
 tokio-util = { version = "0.7.18", optional = true }
 tracing-subscriber = { version = "0.3.23", features = ["time"], optional = true }
 
+[target.'cfg(windows)'.dependencies]
+mimalloc = { version = "0.1.52", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+tikv-jemallocator = { version = "0.7.0", features = ["background_threads_runtime_support", "background_threads"], optional = true }
+
 [dev-dependencies]
 rand = "0.10.1"
 tokio = { version = "1.52.3", features = ["full"] }
@@ -40,6 +46,11 @@ atomic-enum-cell = ["dep:anyhow"]
 fx-collections = [
   "dep:dashmap",
   "dep:rustc-hash",
+]
+
+global-allocator = [
+  "dep:mimalloc",
+  "dep:tikv-jemallocator",
 ]
 
 signal = [
