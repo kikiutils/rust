@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use kikiutils::task::manager::TaskManager;
 use rand::{
-    rng,
     RngExt,
+    rng,
 };
 use tokio::time::sleep;
 
@@ -170,16 +170,16 @@ async fn mixed_randomized_tasks() {
                 // Normal task
                 let delay = rng.random_range(10..200);
                 manager.spawn(async move { sleep(Duration::from_millis(delay)).await });
-            }
+            },
             1 => {
                 // Abort task
                 let task = manager.spawn(async { sleep(Duration::from_secs(5)).await });
                 task.abort();
-            }
+            },
             _ => {
                 // Panic task
                 manager.spawn(async { panic!("boom") });
-            }
+            },
         }
     }
 

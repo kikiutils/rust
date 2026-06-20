@@ -7,9 +7,9 @@ use std::{
 };
 
 use anyhow::{
+    Result,
     anyhow,
     bail,
-    Result,
 };
 
 // Structs

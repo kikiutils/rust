@@ -3,12 +3,15 @@ use anyhow::{
     Result,
 };
 use time::{
+    UtcOffset,
     format_description::BorrowedFormatItem,
     macros::format_description,
-    UtcOffset,
 };
 use tracing_subscriber::{
+    Layer as TraitLayer,
+    Registry,
     fmt::{
+        Layer,
         format::{
             DefaultFields,
             Format,
@@ -16,13 +19,10 @@ use tracing_subscriber::{
         },
         layer,
         time::OffsetTime,
-        Layer,
     },
     layer::SubscriberExt,
     registry,
     util::SubscriberInitExt,
-    Layer as TraitLayer,
-    Registry,
 };
 
 // Types

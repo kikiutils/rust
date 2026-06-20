@@ -12,8 +12,8 @@ pub async fn wait_for_shutdown_signal() -> Result<()> {
         use tokio::{
             select,
             signal::unix::{
-                signal,
                 SignalKind,
+                signal,
             },
         };
 

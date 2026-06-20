@@ -1,11 +1,11 @@
 use std::{
     future::Future,
     sync::{
+        Arc,
         atomic::{
             AtomicU64,
             Ordering,
         },
-        Arc,
     },
 };
 
@@ -77,8 +77,8 @@ impl TaskManager {
                         if let Some(token) = &entry.token {
                             token.cancel();
                         }
-                    }
-                    DrainAction::None => {}
+                    },
+                    DrainAction::None => {},
                 }
 
                 completion_tokens.push(entry.completion);
