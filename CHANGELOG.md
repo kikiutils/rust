@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.11.0
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.10.0...v0.11.0)
+
+### 💅 Refactors
+
+- ⚠️  Rename some logger env keys ([01b30f3](https://github.com/kikiutils/rust/commit/01b30f3))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️  Rename some logger env keys ([01b30f3](https://github.com/kikiutils/rust/commit/01b30f3))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.10.0
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.9.0...v0.10.0)
