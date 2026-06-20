@@ -53,6 +53,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::future::pending;
 
     use anyhow::anyhow;
@@ -61,7 +62,11 @@ mod tests {
 
     #[tokio::test]
     async fn returns_when_ctrl_c_future_completes() {
+        #[cfg(unix)]
         let result = wait_for_shutdown_signal_from(async { Ok(()) }, pending()).await;
+
+        #[cfg(not(unix))]
+        let result = wait_for_shutdown_signal_from(async { Ok(()) }).await;
 
         assert!(result.is_ok());
     }
@@ -76,7 +81,11 @@ mod tests {
 
     #[tokio::test]
     async fn returns_ctrl_c_error() {
+        #[cfg(unix)]
         let result = wait_for_shutdown_signal_from(async { Err(anyhow!("ctrl-c failed")) }, pending()).await;
+
+        #[cfg(not(unix))]
+        let result = wait_for_shutdown_signal_from(async { Err(anyhow!("ctrl-c failed")) }).await;
 
         match result {
             Ok(()) => panic!("ctrl-c errors should propagate"),
