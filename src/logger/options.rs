@@ -159,12 +159,12 @@ impl LoggerInitOptions {
     /// - `LOGGER_CONSOLE_LEVEL`
     /// - `LOGGER_CONSOLE_TARGET`
     /// - `LOGGER_CONSOLE_ANSI`
-    /// - `LOG_TO_FILE`
-    /// - `LOG_DIR`
     /// - `LOGGER_FILE_LEVEL`
     /// - `LOGGER_FILE_ROTATION_ENABLED`
     /// - `LOGGER_FILE_ROTATION_MAX_BYTES`
     /// - `LOGGER_FILE_ROTATION_BACKUP_COUNT`
+    /// - `LOGGER_LOG_DIR`
+    /// - `LOGGER_LOG_TO_FILE`
     /// - `LOGGER_QUEUE_FULL_POLICY`
     pub fn from_env() -> Result<Self> {
         let default_level = env_log_level(ENV_LOG_LEVEL, LoggerLogLevel::Info)?;
