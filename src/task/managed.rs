@@ -4,6 +4,7 @@ use tokio::task::{
 };
 use tokio_util::sync::CancellationToken;
 
+#[derive(Debug)]
 pub struct ManagedTask<T> {
     pub(super) id: u64,
     pub(super) handle: JoinHandle<T>,

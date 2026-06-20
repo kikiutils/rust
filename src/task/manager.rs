@@ -39,12 +39,14 @@ impl Drop for CleanupOnDrop {
     }
 }
 
+#[derive(Debug)]
 struct ManagedTaskEntry {
     abort: AbortHandle,
     completion: CancellationToken,
     token: Option<CancellationToken>,
 }
 
+#[derive(Debug)]
 pub struct TaskManager {
     entries: Arc<FxDashMap<u64, ManagedTaskEntry>>,
     next_id: AtomicU64,

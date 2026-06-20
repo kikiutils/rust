@@ -3,7 +3,7 @@ name = "kikiutils"
 version = "0.8.0"
 
 authors = ["kiki-kanri"]
-categories = []
+categories = ["development-tools"]
 description = "A utility library to simplify Rust development."
 edition = "2021"
 homepage = "https://github.com/kikiutils/rust"

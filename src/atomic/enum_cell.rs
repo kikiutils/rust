@@ -13,6 +13,7 @@ use anyhow::{
 };
 
 // Structs
+#[derive(Debug)]
 pub struct AtomicEnumCell<T: Eq + Into<u8> + PartialEq + TryFrom<u8>> {
     _marker: PhantomData<T>,
     inner: AtomicU8,
@@ -40,7 +41,13 @@ impl<T: Eq + Into<u8> + PartialEq + TryFrom<u8>> AtomicEnumCell<T> {
 
     #[inline]
     pub fn get(&self) -> T {
-        T::try_from(self.inner.load(Ordering::SeqCst)).ok().unwrap()
+        #[allow(
+            clippy::expect_used,
+            reason = "AtomicEnumCell only writes values converted from T, so an invalid discriminant indicates a broken internal invariant."
+        )]
+        T::try_from(self.inner.load(Ordering::SeqCst))
+            .ok()
+            .expect("AtomicEnumCell contained an invalid enum discriminant")
     }
 
     #[inline]

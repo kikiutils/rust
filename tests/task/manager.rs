@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 use std::time::Duration;
 
 use kikiutils::task::manager::TaskManager;
