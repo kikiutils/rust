@@ -102,6 +102,14 @@ global-allocator = [
   "dep:tikv-jemallocator",
 ]
 
+logger = [
+  "dep:anyhow",
+  "dep:pathkit",
+  "dep:time",
+  "dep:tracing",
+  "dep:tracing-subscriber",
+]
+
 signal = [
   "dep:anyhow",
   "dep:tokio",
@@ -114,22 +122,14 @@ task = [
   "fx-collections",
 ]
 
-tracing = [
-  "dep:anyhow",
-  "dep:pathkit",
-  "dep:time",
-  "dep:tracing",
-  "dep:tracing-subscriber",
-]
-
 ## Default and alias
 default = []
 all = [
   "atomic-enum-cell",
   "fx-collections",
+  "logger",
   "signal",
   "task",
-  "tracing",
 ]
 
 full = ["all"]

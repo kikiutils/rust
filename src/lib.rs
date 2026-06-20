@@ -1,7 +1,7 @@
 pub mod atomic;
 #[cfg(feature = "global-allocator")]
 pub mod global_allocator;
-#[cfg(feature = "tracing")]
+#[cfg(feature = "logger")]
 pub mod logger;
 #[cfg(feature = "signal")]
 pub mod signal;
