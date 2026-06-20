@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.10.0
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.9.0...v0.10.0)
+
+### 🏡 Chore
+
+- ⚠️  Rename `tracing` feature name to `logger` ([7c21f80](https://github.com/kikiutils/rust/commit/7c21f80))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️  Rename `tracing` feature name to `logger` ([7c21f80](https://github.com/kikiutils/rust/commit/7c21f80))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.9.0
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.8.0...v0.9.0)
