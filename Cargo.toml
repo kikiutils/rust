@@ -1,6 +1,6 @@
 [package]
 name = "kikiutils"
-version = "0.8.0"
+version = "0.9.0"
 
 authors = ["kiki-kanri"]
 categories = ["development-tools"]

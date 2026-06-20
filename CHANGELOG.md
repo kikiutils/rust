@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.9.0
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.8.0...v0.9.0)
+
+### 🚀 Enhancements
+
+- **logger:** Add configurable tracing logger ([d2c90eb](https://github.com/kikiutils/rust/commit/d2c90eb))
+- **logger:** Add env options builder ([99a5212](https://github.com/kikiutils/rust/commit/99a5212))
+- **logger:** Add non-blocking log workers ([e65eb76](https://github.com/kikiutils/rust/commit/e65eb76))
+
+### 🩹 Fixes
+
+- Lint codes ([c7ce11d](https://github.com/kikiutils/rust/commit/c7ce11d))
+
+### 💅 Refactors
+
+- ⚠️  Remove `tracing` related components and codes ([898f80c](https://github.com/kikiutils/rust/commit/898f80c))
+- **logger:** Use pathkit file moves ([4f8d841](https://github.com/kikiutils/rust/commit/4f8d841))
+
+### 🏡 Chore
+
+- Update `upgrade-dependencies.sh` script ([f1a2a24](https://github.com/kikiutils/rust/commit/f1a2a24))
+- Update scripts ([85d43bd](https://github.com/kikiutils/rust/commit/85d43bd))
+- Update fmt rules and set lint rules and update rust toolchain nightly date to 26-06-15 ([89d68c4](https://github.com/kikiutils/rust/commit/89d68c4))
+- Update lint rules ([3cc9417](https://github.com/kikiutils/rust/commit/3cc9417))
+- Update lint rules ([16550a8](https://github.com/kikiutils/rust/commit/16550a8))
+- Fmt code ([aed428b](https://github.com/kikiutils/rust/commit/aed428b))
+- Add `--message-format=short --quiet` args into lint and lint-fix command ([2f89d10](https://github.com/kikiutils/rust/commit/2f89d10))
+- Update cargo alias commands ([e0cf8fe](https://github.com/kikiutils/rust/commit/e0cf8fe))
+
+### ✅ Tests
+
+- Add atomic and signal unit coverage ([e38e7d9](https://github.com/kikiutils/rust/commit/e38e7d9))
+- **signal:** Support windows target checks ([b4addf4](https://github.com/kikiutils/rust/commit/b4addf4))
+- Gate integration modules by feature ([3ee704c](https://github.com/kikiutils/rust/commit/3ee704c))
+
+#### ⚠️ Breaking Changes
+
+- ⚠️  Remove `tracing` related components and codes ([898f80c](https://github.com/kikiutils/rust/commit/898f80c))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.8.0
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.7.3...v0.8.0)
