@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.11.1
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.11.0...v0.11.1)
+
+### 📖 Documentation
+
+- Correct `LoggerInitOptions::from_env` docs ([50cabff](https://github.com/kikiutils/rust/commit/50cabff))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.11.0
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.10.0...v0.11.0)
