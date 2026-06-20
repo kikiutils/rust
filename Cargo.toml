@@ -71,10 +71,8 @@ private_intra_doc_links = "allow"
 anyhow = { version = "1.0.102", optional = true }
 dashmap = { version = "6.2.1", optional = true }
 rustc-hash = { version = "2.1.2", optional = true }
-time = { version = "0.3.47", features = ["formatting", "local-offset", "macros"], optional = true }
 tokio = { version = "1.52.3", features = ["macros", "rt", "signal", "sync"], optional = true }
 tokio-util = { version = "0.7.18", optional = true }
-tracing-subscriber = { version = "0.3.23", features = ["time"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 mimalloc = { version = "0.1.52", optional = true }
@@ -113,9 +111,6 @@ task = [
 ]
 
 tracing = [
-  "dep:anyhow",
-  "dep:time",
-  "dep:tracing-subscriber",
 ]
 
 ## Default and alias
