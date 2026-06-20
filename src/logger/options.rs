@@ -9,9 +9,11 @@ use pathkit::Path;
 use tracing_subscriber::filter::LevelFilter;
 
 // Constants/Statics
+const DEFAULT_CHANNEL_CAPACITY: usize = 8192;
 const DEFAULT_ROTATION_MAX_BYTES: u64 = 5 * 1024 * 1024;
 const DEFAULT_ROTATION_BACKUP_COUNT: usize = 5;
 const ENV_LOG_LEVEL: &str = "RUST_LOG";
+const ENV_LOGGER_CHANNEL_CAPACITY: &str = "LOGGER_CHANNEL_CAPACITY";
 const ENV_LOGGER_CONSOLE_ANSI: &str = "LOGGER_CONSOLE_ANSI";
 const ENV_LOGGER_CONSOLE_ENABLED: &str = "LOGGER_CONSOLE_ENABLED";
 const ENV_LOGGER_CONSOLE_LEVEL: &str = "LOGGER_CONSOLE_LEVEL";
@@ -22,6 +24,7 @@ const ENV_LOGGER_FILE_LEVEL: &str = "LOGGER_FILE_LEVEL";
 const ENV_LOGGER_FILE_ROTATION_BACKUP_COUNT: &str = "LOGGER_FILE_ROTATION_BACKUP_COUNT";
 const ENV_LOGGER_FILE_ROTATION_ENABLED: &str = "LOGGER_FILE_ROTATION_ENABLED";
 const ENV_LOGGER_FILE_ROTATION_MAX_BYTES: &str = "LOGGER_FILE_ROTATION_MAX_BYTES";
+const ENV_LOGGER_QUEUE_FULL_POLICY: &str = "LOGGER_QUEUE_FULL_POLICY";
 
 // Enums
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -46,6 +49,13 @@ impl LoggerLogLevel {
             Self::Off => LevelFilter::OFF,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum LoggerQueueFullPolicy {
+    Block,
+    #[default]
+    DropNewest,
 }
 
 // Structs
@@ -98,10 +108,36 @@ impl Default for LoggerFileRotationOptions {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct LoggerNonBlockingOptions {
+    pub channel_capacity: usize,
+    pub queue_full_policy: LoggerQueueFullPolicy,
+}
+
+impl Default for LoggerNonBlockingOptions {
+    fn default() -> Self {
+        Self {
+            channel_capacity: DEFAULT_CHANNEL_CAPACITY,
+            queue_full_policy: LoggerQueueFullPolicy::DropNewest,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct LoggerInitOptions {
     pub console_output: Option<LoggerConsoleOutputOptions>,
     pub file_output: Option<LoggerFileOutputOptions>,
+    pub non_blocking: LoggerNonBlockingOptions,
+}
+
+impl Default for LoggerInitOptions {
+    fn default() -> Self {
+        Self {
+            console_output: Some(LoggerConsoleOutputOptions::default()),
+            file_output: None,
+            non_blocking: LoggerNonBlockingOptions::default(),
+        }
+    }
 }
 
 impl LoggerInitOptions {
@@ -110,6 +146,7 @@ impl LoggerInitOptions {
         Self {
             console_output: None,
             file_output: None,
+            non_blocking: LoggerNonBlockingOptions::default(),
         }
     }
 
@@ -117,6 +154,7 @@ impl LoggerInitOptions {
     ///
     /// Reads these keys:
     /// - `RUST_LOG`
+    /// - `LOGGER_CHANNEL_CAPACITY`
     /// - `LOGGER_CONSOLE_ENABLED`
     /// - `LOGGER_CONSOLE_LEVEL`
     /// - `LOGGER_CONSOLE_TARGET`
@@ -127,6 +165,7 @@ impl LoggerInitOptions {
     /// - `LOGGER_FILE_ROTATION_ENABLED`
     /// - `LOGGER_FILE_ROTATION_MAX_BYTES`
     /// - `LOGGER_FILE_ROTATION_BACKUP_COUNT`
+    /// - `LOGGER_QUEUE_FULL_POLICY`
     pub fn from_env() -> Result<Self> {
         let default_level = env_log_level(ENV_LOG_LEVEL, LoggerLogLevel::Info)?;
         let console_output = if env_bool(ENV_LOGGER_CONSOLE_ENABLED, true)? {
@@ -149,9 +188,21 @@ impl LoggerInitOptions {
             None
         };
 
+        let channel_capacity = env_usize(ENV_LOGGER_CHANNEL_CAPACITY, DEFAULT_CHANNEL_CAPACITY)?;
+        if channel_capacity == 0 {
+            bail!("{ENV_LOGGER_CHANNEL_CAPACITY} must be greater than 0");
+        }
+
         Ok(Self {
             console_output,
             file_output,
+            non_blocking: LoggerNonBlockingOptions {
+                channel_capacity,
+                queue_full_policy: env_queue_full_policy(
+                    ENV_LOGGER_QUEUE_FULL_POLICY,
+                    LoggerQueueFullPolicy::DropNewest,
+                )?,
+            },
         })
     }
 }
@@ -183,6 +234,18 @@ fn env_path(key: &str) -> Result<Path> {
     };
 
     Ok(Path::from(value))
+}
+
+fn env_queue_full_policy(key: &str, default: LoggerQueueFullPolicy) -> Result<LoggerQueueFullPolicy> {
+    let Some(value) = env_value(key) else {
+        return Ok(default);
+    };
+
+    match value.to_ascii_lowercase().as_str() {
+        "block" | "blocking" => Ok(LoggerQueueFullPolicy::Block),
+        "drop" | "drop_newest" | "drop-newest" | "lossy" => Ok(LoggerQueueFullPolicy::DropNewest),
+        _ => bail!("{key} must be one of block, drop_newest"),
+    }
 }
 
 fn env_rotation_options() -> Result<Option<LoggerFileRotationOptions>> {
@@ -268,6 +331,14 @@ mod tests {
     }
 
     #[test]
+    fn queue_full_policy_defaults_to_drop_newest() {
+        let options = LoggerNonBlockingOptions::default();
+
+        assert_eq!(options.channel_capacity, DEFAULT_CHANNEL_CAPACITY);
+        assert_eq!(options.queue_full_policy, LoggerQueueFullPolicy::DropNewest);
+    }
+
+    #[test]
     fn defaults_match_logger_contract() {
         let console = LoggerConsoleOutputOptions::default();
         assert!(console.ansi_enabled);
@@ -282,6 +353,11 @@ mod tests {
         assert_eq!(file.base_dir, path!("logs"));
         assert_eq!(file.level, LoggerLogLevel::Info);
         assert_eq!(file.rotation, Some(rotation));
+
+        let default_options = LoggerInitOptions::default();
+        assert!(default_options.console_output.is_some());
+        assert!(default_options.file_output.is_none());
+        assert_eq!(default_options.non_blocking.channel_capacity, DEFAULT_CHANNEL_CAPACITY);
 
         let disabled = LoggerInitOptions::disabled();
         assert!(disabled.console_output.is_none());
@@ -300,6 +376,11 @@ mod tests {
             assert!(console.include_target);
             assert_eq!(console.level, LoggerLogLevel::Info);
             assert!(options.file_output.is_none());
+            assert_eq!(options.non_blocking.channel_capacity, DEFAULT_CHANNEL_CAPACITY);
+            assert_eq!(
+                options.non_blocking.queue_full_policy,
+                LoggerQueueFullPolicy::DropNewest
+            );
 
             Ok(())
         })
@@ -320,6 +401,8 @@ mod tests {
                 (ENV_LOGGER_FILE_ROTATION_ENABLED, "on"),
                 (ENV_LOGGER_FILE_ROTATION_MAX_BYTES, "123"),
                 (ENV_LOGGER_FILE_ROTATION_BACKUP_COUNT, "0"),
+                (ENV_LOGGER_CHANNEL_CAPACITY, "1024"),
+                (ENV_LOGGER_QUEUE_FULL_POLICY, "block"),
             ],
             || {
                 let options = LoggerInitOptions::from_env()?;
@@ -342,6 +425,8 @@ mod tests {
                         max_bytes_per_file: 123,
                     })
                 );
+                assert_eq!(options.non_blocking.channel_capacity, 1024);
+                assert_eq!(options.non_blocking.queue_full_policy, LoggerQueueFullPolicy::Block);
 
                 Ok(())
             },
@@ -388,6 +473,14 @@ mod tests {
             LoggerInitOptions::from_env,
         );
         assert!(zero_rotation.is_err());
+
+        let zero_channel_capacity = with_logger_env(&[(ENV_LOGGER_CHANNEL_CAPACITY, "0")], LoggerInitOptions::from_env);
+        assert!(zero_channel_capacity.is_err());
+
+        let invalid_queue_policy =
+            with_logger_env(&[(ENV_LOGGER_QUEUE_FULL_POLICY, "wait")], LoggerInitOptions::from_env);
+
+        assert!(invalid_queue_policy.is_err());
     }
 
     fn with_logger_env<T>(values: &[(&str, &str)], action: impl FnOnce() -> T) -> T {
@@ -410,6 +503,8 @@ mod tests {
             ENV_LOGGER_FILE_ROTATION_ENABLED,
             ENV_LOGGER_FILE_ROTATION_MAX_BYTES,
             ENV_LOGGER_FILE_ROTATION_BACKUP_COUNT,
+            ENV_LOGGER_CHANNEL_CAPACITY,
+            ENV_LOGGER_QUEUE_FULL_POLICY,
         ];
 
         let previous_values = keys.map(|key| (key, var(key).ok()));

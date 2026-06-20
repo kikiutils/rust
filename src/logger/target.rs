@@ -29,7 +29,7 @@ use super::{
 };
 
 // Constants/Statics
-const DEFAULT_LOG_FILE_NAME: &str = "_default.log";
+pub(super) const DEFAULT_LOG_KEY: &str = "_default";
 const FALLBACK_LOG_FILE_NAME: &str = "_fallback.log";
 
 // Enums
@@ -63,7 +63,7 @@ impl<'a> MakeWriter<'a> for TargetFileWriter {
     type Writer = TargetWriter<'a>;
 
     fn make_writer(&'a self) -> Self::Writer {
-        self.resolve_writer(DEFAULT_LOG_FILE_NAME.trim_end_matches(".log"))
+        self.resolve_writer(DEFAULT_LOG_KEY)
     }
 
     fn make_writer_for(&'a self, meta: &Metadata<'_>) -> Self::Writer {
@@ -114,7 +114,23 @@ impl TargetFileWriter {
         Ok(file)
     }
 
-    fn resolve_writer(&self, key: &str) -> TargetWriter<'_> {
+    // Public methods
+    pub(super) fn flush_all(&self) -> IoResult<()> {
+        self.state.lock_fallback().flush()?;
+
+        let files = match self.state.files.read() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        for file in files.values() {
+            lock_rotating_file(file).flush()?;
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn resolve_writer(&self, key: &str) -> TargetWriter<'_> {
         let file = self
             .get_or_create_file(key)
             .map(TargetWriterFile::Cached)
@@ -123,7 +139,7 @@ impl TargetFileWriter {
         TargetWriter { file }
     }
 
-    fn target_to_key(target: &str) -> String {
+    pub(super) fn target_to_key(target: &str) -> String {
         let key = target
             .split("::")
             .map(sanitize_target_segment)
@@ -143,6 +159,12 @@ struct TargetFileWriterState {
     rotation_options: Option<LoggerFileRotationOptions>,
 }
 
+impl TargetFileWriterState {
+    fn lock_fallback(&self) -> MutexGuard<'_, RotatingLogFile> {
+        lock_rotating_file(&self.fallback)
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct TargetWriter<'a> {
     file: TargetWriterFile<'a>,
@@ -159,6 +181,13 @@ impl Write for TargetWriter<'_> {
 }
 
 // Functions
+fn lock_rotating_file(file: &Mutex<RotatingLogFile>) -> MutexGuard<'_, RotatingLogFile> {
+    match file.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
 fn sanitize_target_segment(value: &str) -> String {
     value
         .chars()
@@ -220,7 +249,13 @@ mod tests {
         writer.resolve_writer("module/cache").write_all(b"first")?;
         writer.resolve_writer("module/cache").write_all(b"second")?;
 
-        assert_eq!((&log_dir / DEFAULT_LOG_FILE_NAME).read_to_string_sync()?, "default");
+        writer.flush_all()?;
+
+        assert_eq!(
+            (&log_dir / format!("{DEFAULT_LOG_KEY}.log")).read_to_string_sync()?,
+            "default"
+        );
+
         assert_eq!(
             (&log_dir / "module" / "cache.log").read_to_string_sync()?,
             "firstsecond"

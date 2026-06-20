@@ -15,6 +15,8 @@ use kikiutils::logger::{
         LoggerFileRotationOptions,
         LoggerInitOptions,
         LoggerLogLevel,
+        LoggerNonBlockingOptions,
+        LoggerQueueFullPolicy,
     },
 };
 use pathkit::{
@@ -51,14 +53,20 @@ fn init_logger_writes_console_and_rotating_target_files() -> Result<()> {
     assert_eq!(default_console_options.level, LoggerLogLevel::Info);
     assert!(LoggerInitOptions::disabled().console_output.is_none());
 
-    init_logger(LoggerInitOptions {
+    let logger_guard = init_logger(LoggerInitOptions {
         console_output: Some(console_options),
         file_output: Some(file_options),
+        non_blocking: LoggerNonBlockingOptions {
+            channel_capacity: 128,
+            queue_full_policy: LoggerQueueFullPolicy::Block,
+        },
     })?;
 
     event!(target: "logger_integration::bad/target?", Level::INFO, "first message");
     event!(target: "logger_integration::bad/target?", Level::INFO, "second message");
     event!(target: "logger_integration::bad/target?", Level::INFO, "third message");
+
+    logger_guard.flush()?;
 
     let target_log = &log_dir / "logger_integration" / "bad_target_.log";
     let rotated_target_log = target_log.with_added_extension("1");
@@ -69,6 +77,7 @@ fn init_logger_writes_console_and_rotating_target_files() -> Result<()> {
     assert!(rotated_target_log.read_to_string_sync()?.contains("second message"));
     assert!(!target_log.with_added_extension("2").exists_sync()?);
 
+    logger_guard.shutdown()?;
     log_dir.remove_dir_all_sync()?;
 
     Ok(())
