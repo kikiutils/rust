@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.11.2
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.11.1...v0.11.2)
+
+### 🚀 Enhancements
+
+- **service:** Add async service lifecycle ([83e814e](https://github.com/kikiutils/rust/commit/83e814e))
+
+### 🏡 Chore
+
+- Update example `Cargo.toml` ([0b12d63](https://github.com/kikiutils/rust/commit/0b12d63))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.11.1
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.11.0...v0.11.1)
