@@ -105,6 +105,7 @@ all = [
   "fx-collections",
   "global-allocator",
   "logger",
+  "async-service",
   "signal",
   "task",
 ]
@@ -117,6 +118,13 @@ full = ["all"]
 # async = ["dep:tokio"]
 
 # Define features here.
+async-service = [
+  "atomic-enum-cell",
+  "dep:anyhow",
+  "dep:tokio",
+  "task",
+]
+
 atomic-enum-cell = ["dep:anyhow"]
 fx-collections = [
   "dep:dashmap",
@@ -155,6 +163,7 @@ task = [
 [dependencies]
 anyhow = { version = "1.0.102", optional = true }
 dashmap = { version = "6.2.1", optional = true }
+num_enum = "0.7.6"
 pathkit = { version = "1.4.1", optional = true }
 rustc-hash = { version = "2.1.2", optional = true }
 time = { version = "0.3.49", features = ["formatting", "local-offset", "macros"], optional = true }

@@ -3,6 +3,8 @@ pub mod atomic;
 pub mod global_allocator;
 #[cfg(feature = "logger")]
 pub mod logger;
+#[cfg(feature = "async-service")]
+pub mod service;
 #[cfg(feature = "signal")]
 pub mod signal;
 #[cfg(feature = "task")]
