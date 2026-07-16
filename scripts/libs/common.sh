@@ -5,9 +5,9 @@
 
 SCRIPT_LIBS_DIR="$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-# Preserve the top-level script name before entering the shared public libs.
-# Without this wrapper adjustment, public/common.sh sees this compatibility file
-# as its caller and log lines are prefixed with [common].
+# Preserve the top-level script context before entering the shared public libs.
+# Otherwise public/common.sh would treat this entry point as the calling script.
 : "${SCRIPT_NAME:=$(basename -- "${BASH_SOURCE[1]:-$0}" .sh)}"
+: "${SCRIPT_DIR:=$(cd -P -- "$(dirname -- "${BASH_SOURCE[1]:-$0}")" && pwd)}"
 
 source "${SCRIPT_LIBS_DIR}/public/common.sh"
