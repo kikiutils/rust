@@ -161,12 +161,12 @@ task = [
 # =============================================================================
 
 [dependencies]
-anyhow = { version = "1.0.102", optional = true }
+anyhow = { version = "1.0.103", optional = true }
 dashmap = { version = "6.2.1", optional = true }
 num_enum = "0.7.6"
 pathkit = { version = "1.4.1", optional = true }
-rustc-hash = { version = "2.1.2", optional = true }
-time = { version = "0.3.49", features = ["formatting", "local-offset", "macros"], optional = true }
+rustc-hash = { version = "2.1.3", optional = true }
+time = { version = "0.3.53", features = ["formatting", "local-offset", "macros"], optional = true }
 tokio = { version = "1.52.3", features = ["macros", "rt", "signal", "sync"], optional = true }
 tokio-util = { version = "0.7.18", optional = true }
 tracing = { version = "0.1.44", optional = true }
@@ -292,7 +292,7 @@ tikv-jemallocator = { version = "0.7.0", features = ["background_threads_runtime
 
 # Test/example/bench-only dependencies.
 [dev-dependencies]
-rand = "0.10.1"
+rand = "0.10.2"
 tokio = { version = "1.52.3", features = ["full"] }
 
 # -----------------------------------------------------------------------------
