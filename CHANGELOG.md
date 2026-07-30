@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.11.3
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.11.2...v0.11.3)
+
+### 🩹 Fixes
+
+- **scripts:** Preserve wrapper script context ([bd61b95](https://github.com/kikiutils/rust/commit/bd61b95))
+
+### 💅 Refactors
+
+- Resolve clippy warnings ([daf207f](https://github.com/kikiutils/rust/commit/daf207f))
+
+### 🏡 Chore
+
+- Bump toolchain channel to `nightly-2026-07-01` ([5b78b02](https://github.com/kikiutils/rust/commit/5b78b02))
+- Bump toolchain channel to `nightly-2026-07-15` ([9af4542](https://github.com/kikiutils/rust/commit/9af4542))
+- Sync public script libs ([59c2783](https://github.com/kikiutils/rust/commit/59c2783))
+- Upgrade deps ([54714f1](https://github.com/kikiutils/rust/commit/54714f1))
+- Sync public scripts libs from upstream ([4d75fea](https://github.com/kikiutils/rust/commit/4d75fea))
+- **lint:** Refine crate lint policy ([bb4980c](https://github.com/kikiutils/rust/commit/bb4980c))
+- Ignore local AI tooling artifacts ([4b42b7c](https://github.com/kikiutils/rust/commit/4b42b7c))
+- Upgrade deps ([08c81eb](https://github.com/kikiutils/rust/commit/08c81eb))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.11.2
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.11.1...v0.11.2)
