@@ -131,10 +131,10 @@ impl TargetFileWriter {
     }
 
     pub(super) fn resolve_writer(&self, key: &str) -> TargetWriter<'_> {
-        let file = self
-            .get_or_create_file(key)
-            .map(TargetWriterFile::Cached)
-            .unwrap_or_else(|_| TargetWriterFile::Fallback(&self.state.fallback));
+        let file = self.get_or_create_file(key).map_or_else(
+            |_| TargetWriterFile::Fallback(&self.state.fallback),
+            TargetWriterFile::Cached,
+        );
 
         TargetWriter { file }
     }

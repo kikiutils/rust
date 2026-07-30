@@ -30,6 +30,10 @@ impl<T: Eq + Into<u8> + PartialEq + TryFrom<u8>> AtomicEnumCell<T> {
 
     // Public methods
     #[inline]
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "AtomicEnumCell stores enum-like values and consistently accepts state values by value."
+    )]
     pub fn ensure<F: FnOnce(T) -> String>(&self, expected: T, message: F) -> Result<()> {
         let value = self.get();
         if value != expected {

@@ -203,8 +203,7 @@ mod tests {
         assert!(
             result
                 .err()
-                .map(|error| error.to_string().contains("max_bytes_per_file must be greater than 0"))
-                .unwrap_or(false)
+                .is_some_and(|error| error.to_string().contains("max_bytes_per_file must be greater than 0"))
         );
     }
 

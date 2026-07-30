@@ -313,6 +313,7 @@ mod tests {
         sync::{
             Mutex,
             OnceLock,
+            PoisonError,
         },
     };
 
@@ -489,7 +490,7 @@ mod tests {
         let _guard = ENV_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(PoisonError::into_inner);
 
         let keys = [
             ENV_LOG_LEVEL,

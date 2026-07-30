@@ -126,7 +126,7 @@ pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
 
     if let Some(file_options) = options.file_output {
         let level = file_options.level;
-        let (file_writer, file_guard) = NonBlockingFileWriter::spawn(file_options, options.non_blocking)?;
+        let (file_writer, file_guard) = NonBlockingFileWriter::spawn(&file_options, options.non_blocking)?;
         workers.push(file_guard);
         layers.push(
             layer()
