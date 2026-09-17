@@ -4,30 +4,41 @@ use tokio::task::{
 };
 use tokio_util::sync::CancellationToken;
 
+use super::TaskId;
+
 #[derive(Debug)]
 pub struct ManagedTask<T> {
-    pub(super) id: u64,
-    pub(super) handle: JoinHandle<T>,
-    pub(super) token: Option<CancellationToken>,
+    cancel_token: Option<CancellationToken>,
+    handle: JoinHandle<T>,
+    id: TaskId,
 }
 
 impl<T> ManagedTask<T> {
+    pub(super) fn new(id: TaskId, handle: JoinHandle<T>, cancel_token: Option<CancellationToken>) -> Self {
+        Self {
+            cancel_token,
+            handle,
+            id,
+        }
+    }
+
+    // Public methods
     pub fn abort(&self) {
         self.handle.abort();
     }
 
     pub fn cancel(&self) -> bool {
-        self.token.as_ref().is_some_and(|t| {
-            t.cancel();
+        self.cancel_token.as_ref().is_some_and(|cancel_token| {
+            cancel_token.cancel();
             true
         })
     }
 
-    pub fn id(&self) -> u64 {
+    pub fn id(&self) -> TaskId {
         self.id
     }
 
-    pub fn into_handle(self) -> JoinHandle<T> {
+    pub fn into_join_handle(self) -> JoinHandle<T> {
         self.handle
     }
 

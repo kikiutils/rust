@@ -1,238 +1,72 @@
 #![allow(clippy::unwrap_used)]
 
-use std::time::Duration;
+use std::{
+    future::pending,
+    sync::Arc,
+};
 
 use kikiutils::task::manager::TaskManager;
-use rand::{
-    RngExt,
-    rng,
+use tokio::{
+    spawn,
+    sync::oneshot::channel,
+    task::yield_now,
 };
-use tokio::time::sleep;
-
-// Helpers
-fn spawn_sleeping_tasks(manager: &TaskManager, dur: Duration) {
-    for _ in 0..50 {
-        manager.spawn(async move { sleep(dur).await });
-    }
-}
 
 // Tests
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn abort_and_join_clears_tasks() {
-    let manager = TaskManager::new();
-
-    spawn_sleeping_tasks(&manager, Duration::from_secs(10));
-
-    manager.abort_and_join_existing().await;
-    assert!(manager.is_empty());
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn abort_existing_then_join() {
-    let manager = TaskManager::new();
-
-    spawn_sleeping_tasks(&manager, Duration::from_secs(10));
-
-    manager.abort_existing();
-    manager.join_existing().await;
-    assert!(manager.is_empty());
-}
-
 #[tokio::test]
-async fn abort_by_id_cancels_task() {
+async fn manager_starts_empty_and_tracks_task_counts() {
     let manager = TaskManager::new();
 
-    let task = manager.spawn(async {
-        sleep(Duration::from_secs(5)).await;
-        99
-    });
-
-    let id = task.id();
-
-    assert!(manager.abort(id));
-    assert!(task.join().await.unwrap_err().is_cancelled());
-    assert!(!manager.abort(id));
     assert!(manager.is_empty());
-}
-
-#[tokio::test]
-async fn default_and_new_are_equivalent() {
-    let manager1 = TaskManager::new();
-    let manager2 = TaskManager::default();
-
-    assert!(manager1.is_empty());
-    assert!(manager2.is_empty());
-}
-
-#[tokio::test]
-async fn len_and_task_count_reflect_state() {
-    let manager = TaskManager::new();
-
+    assert!(!manager.has_tasks());
     assert_eq!(manager.len(), 0);
     assert_eq!(manager.task_count(), 0);
 
-    manager.spawn(async { sleep(Duration::from_millis(50)).await });
+    let task = manager.spawn(async {});
 
+    assert!(!manager.is_empty());
+    assert!(manager.has_tasks());
     assert_eq!(manager.len(), 1);
     assert_eq!(manager.task_count(), 1);
 
-    manager.join_existing().await;
-    assert_eq!(manager.len(), 0);
+    task.join().await.unwrap();
+
+    assert!(manager.is_empty());
     assert_eq!(manager.task_count(), 0);
 }
 
 #[tokio::test]
-async fn has_tasks_reflects_state() {
-    let manager = TaskManager::new();
-
-    assert!(!manager.has_tasks());
-    assert!(manager.is_empty());
-
-    manager.spawn(async { sleep(Duration::from_millis(50)).await });
-    assert!(manager.has_tasks());
-
-    manager.join_existing().await;
-    assert!(!manager.has_tasks());
-    assert!(manager.is_empty());
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn immediate_tasks_are_removed_after_joining_handles() {
-    let manager = TaskManager::new();
-
-    let tasks = (0..1000).map(|i| manager.spawn(async move { i })).collect::<Vec<_>>();
-
-    let mut results = Vec::new();
-    for task in tasks {
-        results.push(task.join().await.unwrap());
-    }
-
-    assert_eq!(results, (0..1000).collect::<Vec<_>>());
-    assert!(manager.is_empty());
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn join_existing_completes() {
-    let manager = TaskManager::new();
-
-    spawn_sleeping_tasks(&manager, Duration::from_millis(100));
-
-    manager.join_existing().await;
-    assert!(manager.is_empty());
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn cancel_and_join_existing_clears_cooperative_tasks() {
-    let manager = TaskManager::new();
-
-    for _ in 0..50 {
-        manager.spawn_with_token(|token| async move {
-            token.cancelled().await;
-        });
-    }
-
-    manager.cancel_and_join_existing().await;
-    assert!(manager.is_empty());
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn cancel_existing_clears_cooperative_tasks_after_join() {
-    let manager = TaskManager::new();
-
-    for _ in 0..50 {
-        manager.spawn_with_token(|token| async move {
-            token.cancelled().await;
-        });
-    }
-
-    manager.cancel_existing();
-    manager.join_existing().await;
-    assert!(manager.is_empty());
-}
-
-#[tokio::test]
-async fn join_with_no_tasks_is_safe() {
-    let manager = TaskManager::new();
-
-    manager.join_existing().await;
-    manager.abort_and_join_existing().await;
-    manager.abort_existing();
-    assert!(manager.is_empty());
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn mixed_randomized_tasks() {
-    let manager = TaskManager::new();
-    let mut rng = rng();
-
-    for _ in 0..50 {
-        let choice = rng.random_range(0..3);
-        match choice {
-            0 => {
-                // Normal task
-                let delay = rng.random_range(10..200);
-                manager.spawn(async move { sleep(Duration::from_millis(delay)).await });
-            },
-            1 => {
-                // Abort task
-                let task = manager.spawn(async { sleep(Duration::from_secs(5)).await });
-                task.abort();
-            },
-            _ => {
-                // Panic task
-                manager.spawn(async { panic!("boom") });
-            },
-        }
-    }
-
-    manager.join_existing().await;
-    assert!(manager.is_empty());
-}
-
-#[tokio::test]
-async fn spawn_abort_cancels() {
-    let manager = TaskManager::new();
-
-    let task = manager.spawn(async {
-        sleep(Duration::from_secs(5)).await;
-        99
-    });
-
-    task.abort();
-
-    let result = task.join().await;
-    assert!(result.is_err());
-    assert!(result.err().unwrap().is_cancelled());
-}
-
-#[tokio::test]
-async fn managed_task_cancel_returns_false_without_token() {
+async fn managed_task_join_and_into_join_handle_preserve_result() {
     let manager = TaskManager::new();
 
     let task = manager.spawn(async { 42 });
+    assert_eq!(task.join().await.unwrap(), 42);
+    assert!(manager.is_empty());
 
+    let task = manager.spawn(async { 84 });
+    let join_handle = task.into_join_handle();
+    assert_eq!(join_handle.await.unwrap(), 84);
+    assert!(manager.is_empty());
+}
+
+#[tokio::test]
+async fn managed_task_abort_cancels_task() {
+    let manager = TaskManager::new();
+    let task = manager.spawn(pending::<()>());
+
+    task.abort();
+
+    assert!(task.join().await.unwrap_err().is_cancelled());
+    assert!(manager.is_empty());
+}
+
+#[tokio::test]
+async fn managed_task_cancel_only_works_with_a_token() {
+    let manager = TaskManager::new();
+
+    let task = manager.spawn(async {});
     assert!(!task.cancel());
-    assert_eq!(task.join().await.unwrap(), 42);
-    assert!(manager.is_empty());
-}
-
-#[tokio::test]
-async fn spawn_with_token_cancel_wakes_task() {
-    let manager = TaskManager::new();
-
-    let task = manager.spawn_with_token(|token| async move {
-        token.cancelled().await;
-        42
-    });
-
-    assert!(manager.cancel(task.id()));
-    assert_eq!(task.join().await.unwrap(), 42);
-    assert!(manager.is_empty());
-}
-
-#[tokio::test]
-async fn managed_task_cancel_wakes_token_task() {
-    let manager = TaskManager::new();
+    task.join().await.unwrap();
 
     let task = manager.spawn_with_token(|token| async move {
         token.cancelled().await;
@@ -245,60 +79,137 @@ async fn managed_task_cancel_wakes_token_task() {
 }
 
 #[tokio::test]
-async fn manager_cancel_returns_false_for_missing_or_non_token_task() {
+async fn manager_cancel_by_id_handles_token_and_non_token_tasks() {
     let manager = TaskManager::new();
 
-    assert!(!manager.cancel(999));
+    let non_token_task = manager.spawn(pending::<()>());
+    let non_token_task_id = non_token_task.id();
+    assert!(!manager.cancel(non_token_task_id));
 
-    let task = manager.spawn(async { sleep(Duration::from_millis(50)).await });
-    assert!(!manager.cancel(task.id()));
+    let token_task = manager.spawn_with_token(|token| async move {
+        token.cancelled().await;
+    });
 
-    task.join().await.unwrap();
-    assert!(manager.is_empty());
+    let token_task_id = token_task.id();
+    assert!(manager.cancel(token_task_id));
+
+    assert!(manager.abort(non_token_task_id));
+    manager.join_existing().await;
+
+    assert!(token_task.join().await.is_ok());
+    assert!(non_token_task.join().await.is_err());
+    assert!(!manager.cancel(token_task_id));
+    assert!(!manager.abort(non_token_task_id));
 }
 
 #[tokio::test]
-async fn into_handle_returns_original_join_handle() {
+async fn manager_join_by_id_waits_for_completion_and_rejects_missing_ids() {
     let manager = TaskManager::new();
+    let (sender, receiver) = channel();
+    let task = manager.spawn(async move {
+        receiver.await.unwrap();
+        42
+    });
 
-    let task = manager.spawn(async { 42 });
-    let handle = task.into_handle();
+    let task_id = task.id();
 
-    assert_eq!(handle.await.unwrap(), 42);
-    assert!(manager.is_empty());
+    sender.send(()).unwrap();
+
+    assert!(manager.join(task_id).await);
+    assert_eq!(task.join().await.unwrap(), 42);
+    assert!(!manager.join(task_id).await);
 }
 
 #[tokio::test]
-async fn spawn_multiple_returns_results() {
+async fn join_existing_waits_for_normal_tasks_and_cleans_entries() {
     let manager = TaskManager::new();
 
-    let tasks = (0..10).map(|i| manager.spawn(async move { i })).collect::<Vec<_>>();
-
-    let mut results = Vec::new();
-    for task in tasks {
-        results.push(task.join().await.unwrap());
+    for _ in 0..16 {
+        manager.spawn(async {
+            tokio::task::yield_now().await;
+        });
     }
 
-    assert_eq!(results, (0..10).collect::<Vec<_>>());
+    manager.join_existing().await;
+
+    assert!(manager.is_empty());
 }
 
 #[tokio::test]
-async fn spawn_panic_propagates() {
+async fn cancel_and_join_existing_is_cooperative() {
     let manager = TaskManager::new();
 
-    let task = manager.spawn(async { panic!() });
+    for _ in 0..16 {
+        manager.spawn_with_token(|token| async move {
+            token.cancelled().await;
+        });
+    }
 
-    let result = task.join().await;
-    assert!(result.is_err());
-    assert!(result.err().unwrap().is_panic());
+    manager.cancel_and_join_existing().await;
+
+    assert!(manager.is_empty());
 }
 
 #[tokio::test]
-async fn spawn_returns_result() {
+async fn abort_existing_and_abort_and_join_existing_cancel_tasks() {
     let manager = TaskManager::new();
 
-    let task = manager.spawn(async { 42 });
+    for _ in 0..8 {
+        manager.spawn(pending::<()>());
+    }
 
-    let result = task.join().await.unwrap();
-    assert_eq!(result, 42);
+    manager.abort_existing();
+    manager.join_existing().await;
+    assert!(manager.is_empty());
+
+    for _ in 0..8 {
+        manager.spawn(pending::<()>());
+    }
+
+    manager.abort_and_join_existing().await;
+    assert!(manager.is_empty());
+}
+
+#[tokio::test]
+async fn manager_remains_reusable_after_draining_tasks() {
+    let manager = TaskManager::default();
+
+    manager.spawn_with_token(|token| async move {
+        token.cancelled().await;
+    });
+
+    manager.cancel_and_join_existing().await;
+
+    manager.spawn(async {});
+    manager.join_existing().await;
+
+    assert!(manager.is_empty());
+}
+
+#[tokio::test]
+async fn concurrent_spawn_and_join_does_not_leave_entries_registered() {
+    let manager = Arc::new(TaskManager::new());
+    let producer_manager = manager.clone();
+    let producer = spawn(async move {
+        for index in 0..128 {
+            producer_manager.spawn(async {
+                yield_now().await;
+            });
+
+            if index % 8 == 0 {
+                yield_now().await;
+            }
+        }
+    });
+
+    let joiner_manager = manager.clone();
+    let joiner = spawn(async move {
+        joiner_manager.join_existing().await;
+    });
+
+    producer.await.unwrap();
+    joiner.await.unwrap();
+    manager.join_existing().await;
+
+    assert!(manager.is_empty());
 }

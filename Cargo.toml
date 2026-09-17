@@ -185,7 +185,7 @@ signal = [
 ]
 
 task = [
-  "dep:anyhow",
+  "dep:parking_lot",
   "dep:tokio",
   "dep:tokio-util",
   "fx-collections",
@@ -200,6 +200,7 @@ anyhow = { version = "1.0.104", optional = true }
 async-trait = { version = "0.1.92", optional = true }
 dashmap = { version = "6.2.1", optional = true }
 num_enum = "0.7.6"
+parking_lot = { version = "0.12.5", optional = true }
 pathkit = { version = "1.4.2", optional = true }
 rustc-hash = { version = "2.1.3", optional = true }
 time = { version = "0.3.55", features = ["formatting", "local-offset", "macros"], optional = true }
@@ -328,8 +329,7 @@ tikv-jemallocator = { version = "0.7.0", features = ["background_threads_runtime
 
 # Test/example/bench-only dependencies.
 [dev-dependencies]
-rand = "0.10.2"
-tokio = { version = "1.53.1", features = ["full"] }
+criterion = { version = "0.8.2", features = ["async_tokio"] }
 
 # -----------------------------------------------------------------------------
 # Target-specific development dependencies
@@ -400,11 +400,11 @@ tokio = { version = "1.53.1", features = ["full"] }
 # path = "tests/integration.rs"
 # required-features = []
 
-# [[bench]]
-# name = "benchmark-name"
-# path = "benches/benchmark-name.rs"
-# harness = false
-# required-features = []
+[[bench]]
+name = "task_manager"
+path = "benches/task_manager.rs"
+harness = false
+required-features = ["task"]
 
 # =============================================================================
 # Profiles

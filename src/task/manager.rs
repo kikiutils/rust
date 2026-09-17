@@ -2,20 +2,21 @@ use std::{
     future::Future,
     sync::{
         Arc,
-        atomic::{
-            AtomicU64,
-            Ordering,
-        },
+        OnceLock,
     },
 };
 
+use parking_lot::Mutex;
 use tokio::{
     spawn,
     task::AbortHandle,
 };
 use tokio_util::sync::CancellationToken;
 
-use super::managed::ManagedTask;
+use super::{
+    TaskId,
+    managed::ManagedTask,
+};
 use crate::types::fx_collections::FxDashMap;
 
 // Enums
@@ -28,14 +29,16 @@ enum DrainAction {
 // Structs
 struct CleanupOnDrop {
     completion: CancellationToken,
-    entries: Arc<FxDashMap<u64, ManagedTaskEntry>>,
-    id: u64,
+    entries: Arc<FxDashMap<TaskId, ManagedTaskEntry>>,
+    id: Arc<OnceLock<TaskId>>,
 }
 
 impl Drop for CleanupOnDrop {
     fn drop(&mut self) {
         self.completion.cancel();
-        self.entries.remove(&self.id);
+        if let Some(id) = self.id.get() {
+            self.entries.remove(id);
+        }
     }
 }
 
@@ -48,8 +51,8 @@ struct ManagedTaskEntry {
 
 #[derive(Debug)]
 pub struct TaskManager {
-    entries: Arc<FxDashMap<u64, ManagedTaskEntry>>,
-    next_id: AtomicU64,
+    entries: Arc<FxDashMap<TaskId, ManagedTaskEntry>>,
+    registration_lock: Mutex<()>,
 }
 
 impl Default for TaskManager {
@@ -63,32 +66,37 @@ impl TaskManager {
     pub fn new() -> Self {
         Self {
             entries: Arc::new(FxDashMap::default()),
-            next_id: AtomicU64::new(0),
+            registration_lock: Mutex::new(()),
         }
     }
 
     // Private methods
-    async fn drain_and_join_existing(&self, action: DrainAction) {
-        let mut completion_tokens = Vec::new();
-        let keys = self.entries.iter().map(|kv| *kv.key()).collect::<Vec<_>>();
-        for key in keys {
-            if let Some((_, entry)) = self.entries.remove(&key) {
-                match action {
-                    DrainAction::Abort => entry.abort.abort(),
-                    DrainAction::Cancel => {
-                        if let Some(token) = &entry.token {
-                            token.cancel();
-                        }
-                    },
-                    DrainAction::None => {},
-                }
+    fn collect_existing_completions(&self, action: &DrainAction) -> Vec<CancellationToken> {
+        let _registration_lock = self.registration_lock.lock();
+        let mut completions = Vec::with_capacity(self.entries.len());
 
-                completion_tokens.push(entry.completion);
+        for entry in self.entries.iter() {
+            match action {
+                DrainAction::Abort => entry.abort.abort(),
+                DrainAction::Cancel => {
+                    if let Some(token) = &entry.token {
+                        token.cancel();
+                    }
+                },
+                DrainAction::None => {},
             }
+
+            completions.push(entry.completion.clone());
         }
 
-        for token in completion_tokens {
-            token.cancelled().await;
+        completions
+    }
+
+    async fn drain_and_join_existing(&self, action: DrainAction) {
+        let completions = self.collect_existing_completions(&action);
+
+        for completion in completions {
+            completion.cancelled().await;
         }
     }
 
@@ -97,48 +105,46 @@ impl TaskManager {
         F: Future<Output = T> + Send + 'static,
         T: Send + 'static,
     {
-        // Generate task id
-        let task_id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let _registration_lock = self.registration_lock.lock();
 
-        // Spawn the task behind a startup gate so cleanup cannot run before the entry exists.
         let entries = self.entries.clone();
         let start = CancellationToken::new();
         let completion = CancellationToken::new();
+        let task_id = Arc::new(OnceLock::new());
         let cleanup = CleanupOnDrop {
-            entries: entries.clone(),
-            id: task_id,
             completion: completion.clone(),
+            entries: entries.clone(),
+            id: task_id.clone(),
         };
 
         let task_start = start.clone();
-        let user_task = spawn(async move {
+        let handle = spawn(async move {
             let _cleanup = cleanup;
             task_start.cancelled().await;
             future.await
         });
 
+        let task_id_value = handle.id();
+        let _ = task_id.set(task_id_value);
+
+        // The task cannot finish before this entry is registered because the startup gate is closed.
+        // The ID is assigned by Tokio and is also available to callers through JoinHandle::id().
         self.entries.insert(
-            task_id,
+            task_id_value,
             ManagedTaskEntry {
-                abort: user_task.abort_handle(),
+                abort: handle.abort_handle(),
                 completion,
                 token: token.clone(),
             },
         );
 
         start.cancel();
-
-        // Return task
-        ManagedTask {
-            id: task_id,
-            handle: user_task,
-            token,
-        }
+        ManagedTask::new(task_id_value, handle, token)
     }
 
     // Public methods
     #[inline]
-    pub fn abort(&self, id: u64) -> bool {
+    pub fn abort(&self, id: TaskId) -> bool {
         self.entries.get(&id).is_some_and(|kv| {
             kv.abort.abort();
             true
@@ -146,6 +152,7 @@ impl TaskManager {
     }
 
     pub fn abort_existing(&self) {
+        let _registration_lock = self.registration_lock.lock();
         self.entries.iter().for_each(|kv| kv.abort.abort());
     }
 
@@ -154,7 +161,7 @@ impl TaskManager {
     }
 
     #[inline]
-    pub fn cancel(&self, id: u64) -> bool {
+    pub fn cancel(&self, id: TaskId) -> bool {
         self.entries.get(&id).is_some_and(|kv| {
             kv.token.as_ref().is_some_and(|t| {
                 t.cancel();
@@ -164,6 +171,7 @@ impl TaskManager {
     }
 
     pub fn cancel_existing(&self) {
+        let _registration_lock = self.registration_lock.lock();
         self.entries.iter().for_each(|kv| {
             if let Some(token) = &kv.token {
                 token.cancel();
@@ -183,6 +191,16 @@ impl TaskManager {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
+    }
+
+    pub async fn join(&self, id: TaskId) -> bool {
+        let completion = self.entries.get(&id).map(|entry| entry.completion.clone());
+        let Some(completion) = completion else {
+            return false;
+        };
+
+        completion.cancelled().await;
+        true
     }
 
     pub async fn join_existing(&self) {
