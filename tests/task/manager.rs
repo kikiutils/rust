@@ -189,7 +189,7 @@ async fn manager_remains_reusable_after_draining_tasks() {
 #[tokio::test]
 async fn concurrent_spawn_and_join_does_not_leave_entries_registered() {
     let manager = Arc::new(TaskManager::new());
-    let producer_manager = manager.clone();
+    let producer_manager = Arc::clone(&manager);
     let producer = spawn(async move {
         for index in 0..128 {
             producer_manager.spawn(async {
@@ -202,7 +202,7 @@ async fn concurrent_spawn_and_join_does_not_leave_entries_registered() {
         }
     });
 
-    let joiner_manager = manager.clone();
+    let joiner_manager = Arc::clone(&manager);
     let joiner = spawn(async move {
         joiner_manager.join_existing().await;
     });

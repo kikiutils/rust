@@ -95,7 +95,7 @@ impl TargetFileWriter {
         }
         .get(key)
         {
-            return Ok(file.clone());
+            return Ok(Arc::clone(file));
         }
 
         let mut files = match self.state.files.write() {
@@ -104,13 +104,13 @@ impl TargetFileWriter {
         };
 
         if let Some(file) = files.get(key) {
-            return Ok(file.clone());
+            return Ok(Arc::clone(file));
         }
 
         let path = &self.state.base_dir / format!("{key}.log");
         let file = Arc::new(Mutex::new(RotatingLogFile::new(path, self.state.rotation_options)?));
 
-        files.insert(key.to_string(), file.clone());
+        files.insert(key.to_string(), Arc::clone(&file));
         Ok(file)
     }
 

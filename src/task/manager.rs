@@ -107,14 +107,14 @@ impl TaskManager {
     {
         let _registration_lock = self.registration_lock.lock();
 
-        let entries = self.entries.clone();
+        let entries = Arc::clone(&self.entries);
         let start = CancellationToken::new();
         let completion = CancellationToken::new();
         let task_id = Arc::new(OnceLock::new());
         let cleanup = CleanupOnDrop {
             completion: completion.clone(),
-            entries: entries.clone(),
-            id: task_id.clone(),
+            entries: Arc::clone(&entries),
+            id: Arc::clone(&task_id),
         };
 
         let task_start = start.clone();
