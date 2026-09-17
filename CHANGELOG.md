@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.12.0
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.11.3...v0.12.0)
+
+### 🚀 Enhancements
+
+- **async-service:** ⚠️  Centralize cleanup in lifecycle hooks ([7f81129](https://github.com/kikiutils/rust/commit/7f81129))
+
+### 💅 Refactors
+
+- **task:** Rewrite task manager tracking ([10c4f64](https://github.com/kikiutils/rust/commit/10c4f64))
+
+### 🏡 Chore
+
+- Bump toolchain channel to `nightly-2026-08-01` ([30d3df8](https://github.com/kikiutils/rust/commit/30d3df8))
+- Update `modify-files-permissions.sh` ([a004939](https://github.com/kikiutils/rust/commit/a004939))
+- Update `modify-files-permissions.sh` ([347b3e4](https://github.com/kikiutils/rust/commit/347b3e4))
+- Update `modify-files-permissions.sh` ([f7da945](https://github.com/kikiutils/rust/commit/f7da945))
+- Update `.gitignore` ([1a910c9](https://github.com/kikiutils/rust/commit/1a910c9))
+- Add dylint config and cargo alias ([1c18e2c](https://github.com/kikiutils/rust/commit/1c18e2c))
+- Bump toolchain channel to `nightly-2026-09-01` ([505d781](https://github.com/kikiutils/rust/commit/505d781))
+- Upgrade deps ([fe34e3d](https://github.com/kikiutils/rust/commit/fe34e3d))
+- Add `clone_on_ref_ptr` lint rule ([595d64d](https://github.com/kikiutils/rust/commit/595d64d))
+
+### 🎨 Styles
+
+- Use explicit Arc::clone syntax ([069502e](https://github.com/kikiutils/rust/commit/069502e))
+
+#### ⚠️ Breaking Changes
+
+- **async-service:** ⚠️  Centralize cleanup in lifecycle hooks ([7f81129](https://github.com/kikiutils/rust/commit/7f81129))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.11.3
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.11.2...v0.11.3)
