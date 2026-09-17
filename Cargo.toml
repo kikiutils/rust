@@ -155,6 +155,7 @@ full = ["all"]
 async-service = [
   "atomic-enum-cell",
   "dep:anyhow",
+  "dep:async-trait",
   "dep:tokio",
   "task",
 ]
@@ -196,6 +197,7 @@ task = [
 
 [dependencies]
 anyhow = { version = "1.0.104", optional = true }
+async-trait = { version = "0.1.92", optional = true }
 dashmap = { version = "6.2.1", optional = true }
 num_enum = "0.7.6"
 pathkit = { version = "1.4.2", optional = true }

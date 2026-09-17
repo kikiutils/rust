@@ -1,43 +1,58 @@
 #![allow(clippy::unwrap_used)]
 
-use std::{
-    sync::{
-        Arc,
-        atomic::{
-            AtomicBool,
-            Ordering,
-        },
+use std::sync::{
+    Arc,
+    atomic::{
+        AtomicBool,
+        Ordering,
     },
-    time::Duration,
 };
 
 use anyhow::{
     Result,
     anyhow,
 };
+use async_trait::async_trait;
 use kikiutils::{
     atomic::enum_cell::AtomicEnumCell,
     impl_async_service_lifecycle,
     service::{
-        async_lifecycle::AsyncServiceLifecycle,
+        async_lifecycle::{
+            AsyncServiceLifecycle,
+            AsyncServiceLifecycleHooks,
+        },
         state::ServiceState,
     },
     task::manager::TaskManager,
 };
-use tokio::{
-    sync::Mutex,
-    time::sleep,
-};
+use tokio::sync::Mutex;
 
+// Structs
 struct TestService {
+    cleanup_called: AtomicBool,
+    cleanup_should_fail: AtomicBool,
     lifecycle_lock: Mutex<()>,
     state: AtomicEnumCell<ServiceState>,
     task_manager: TaskManager,
 }
 
+#[async_trait]
+impl AsyncServiceLifecycleHooks for TestService {
+    async fn cleanup_resources(&self) -> Result<()> {
+        self.cleanup_called.store(true, Ordering::SeqCst);
+        if self.cleanup_should_fail.load(Ordering::SeqCst) {
+            Err(anyhow!("cleanup failed"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
 impl TestService {
     fn new(state: ServiceState) -> Self {
         Self {
+            cleanup_called: AtomicBool::new(false),
+            cleanup_should_fail: AtomicBool::new(false),
             lifecycle_lock: Mutex::new(()),
             state: AtomicEnumCell::new(state),
             task_manager: TaskManager::new(),
@@ -99,25 +114,47 @@ async fn execute_start_failure_restores_stopped_and_clears_tasks() {
     assert_eq!(error.to_string(), "startup failed");
     assert_eq!(service.state.get(), ServiceState::Stopped);
     assert!(service.task_manager.is_empty());
+    assert!(service.cleanup_called.load(Ordering::SeqCst));
 }
 
 #[tokio::test]
-async fn execute_stop_cancels_tasks_runs_future_and_marks_service_stopped() {
+async fn execute_start_failure_marks_cleanup_failed_when_rollback_fails() {
+    let service = TestService::new(ServiceState::Stopped);
+    service.cleanup_should_fail.store(true, Ordering::SeqCst);
+
+    let error = service
+        .execute_start(async { Result::<()>::Err(anyhow!("startup failed")) })
+        .await
+        .unwrap_err();
+
+    assert_eq!(error.to_string(), "startup failed");
+    assert_eq!(service.state.get(), ServiceState::CleanupFailed);
+    assert!(service.cleanup_called.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn execute_start_is_rejected_after_cleanup_failed() {
+    let service = TestService::new(ServiceState::CleanupFailed);
+
+    let error = service.execute_start(async { Result::<()>::Ok(()) }).await.unwrap_err();
+
+    assert_eq!(
+        error.to_string(),
+        "cannot start service after cleanup failed; retry cleanup first"
+    );
+}
+
+#[tokio::test]
+async fn execute_stop_cancels_tasks_runs_cleanup_and_marks_service_stopped() {
     let service = TestService::new(ServiceState::Running);
-    let cleanup_ran = Arc::new(AtomicBool::new(false));
-    let cleanup_ran_in_future = Arc::clone(&cleanup_ran);
 
     service.task_manager.spawn_with_token(|token| async move {
         token.cancelled().await;
     });
 
-    service
-        .execute_stop(async move {
-            cleanup_ran_in_future.store(true, Ordering::SeqCst);
-        })
-        .await;
+    service.execute_stop().await.unwrap();
 
-    assert!(cleanup_ran.load(Ordering::SeqCst));
+    assert!(service.cleanup_called.load(Ordering::SeqCst));
     assert_eq!(service.state.get(), ServiceState::Stopped);
     assert!(service.task_manager.is_empty());
 }
@@ -125,17 +162,30 @@ async fn execute_stop_cancels_tasks_runs_future_and_marks_service_stopped() {
 #[tokio::test]
 async fn execute_stop_is_noop_when_service_is_already_stopped() {
     let service = TestService::new(ServiceState::Stopped);
-    let cleanup_ran = Arc::new(AtomicBool::new(false));
-    let cleanup_ran_in_future = Arc::clone(&cleanup_ran);
 
-    service
-        .execute_stop(async move {
-            cleanup_ran_in_future.store(true, Ordering::SeqCst);
-        })
-        .await;
+    service.execute_stop().await.unwrap();
 
-    sleep(Duration::from_millis(1)).await;
+    assert!(!service.cleanup_called.load(Ordering::SeqCst));
+    assert_eq!(service.state.get(), ServiceState::Stopped);
+}
 
-    assert!(!cleanup_ran.load(Ordering::SeqCst));
+#[tokio::test]
+async fn execute_stop_marks_cleanup_failed_when_cleanup_fails() {
+    let service = TestService::new(ServiceState::Running);
+    service.cleanup_should_fail.store(true, Ordering::SeqCst);
+
+    let error = service.execute_stop().await.unwrap_err();
+
+    assert_eq!(error.to_string(), "cleanup failed");
+    assert_eq!(service.state.get(), ServiceState::CleanupFailed);
+}
+
+#[tokio::test]
+async fn execute_stop_retries_cleanup_after_cleanup_failed() {
+    let service = TestService::new(ServiceState::CleanupFailed);
+
+    service.execute_stop().await.unwrap();
+
+    assert!(service.cleanup_called.load(Ordering::SeqCst));
     assert_eq!(service.state.get(), ServiceState::Stopped);
 }

@@ -6,8 +6,9 @@ use num_enum::{
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, IntoPrimitive, PartialEq, TryFromPrimitive)]
 pub enum ServiceState {
-    Stopped,
-    Starting,
+    CleanupFailed,
     Running,
+    Starting,
+    Stopped,
     Stopping,
 }
