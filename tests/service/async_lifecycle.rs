@@ -102,8 +102,8 @@ async fn execute_start_is_noop_when_service_is_already_active() {
 async fn execute_start_failure_restores_stopped_and_clears_tasks() {
     let service = TestService::new(ServiceState::Stopped);
 
-    service.task_manager.spawn_with_token(|token| async move {
-        token.cancelled().await;
+    service.task_manager.spawn_with_token(async |cancel_token| {
+        cancel_token.cancelled().await;
     });
 
     let error = service
@@ -148,8 +148,8 @@ async fn execute_start_is_rejected_after_cleanup_failed() {
 async fn execute_stop_cancels_tasks_runs_cleanup_and_marks_service_stopped() {
     let service = TestService::new(ServiceState::Running);
 
-    service.task_manager.spawn_with_token(|token| async move {
-        token.cancelled().await;
+    service.task_manager.spawn_with_token(async |cancel_token| {
+        cancel_token.cancelled().await;
     });
 
     service.execute_stop().await.unwrap();

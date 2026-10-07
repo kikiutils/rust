@@ -45,8 +45,8 @@ impl Drop for CleanupOnDrop {
 #[derive(Debug)]
 struct ManagedTaskEntry {
     abort: AbortHandle,
+    cancel_token: Option<CancellationToken>,
     completion: CancellationToken,
-    token: Option<CancellationToken>,
 }
 
 #[derive(Debug)]
@@ -79,8 +79,8 @@ impl TaskManager {
             match action {
                 DrainAction::Abort => entry.abort.abort(),
                 DrainAction::Cancel => {
-                    if let Some(token) = &entry.token {
-                        token.cancel();
+                    if let Some(cancel_token) = &entry.cancel_token {
+                        cancel_token.cancel();
                     }
                 },
                 DrainAction::None => {},
@@ -100,7 +100,7 @@ impl TaskManager {
         }
     }
 
-    fn spawn_inner<F, T>(&self, future: F, token: Option<CancellationToken>) -> ManagedTask<T>
+    fn spawn_inner<F, T>(&self, future: F, cancel_token: Option<CancellationToken>) -> ManagedTask<T>
     where
         F: Future<Output = T> + Send + 'static,
         T: Send + 'static,
@@ -133,13 +133,13 @@ impl TaskManager {
             task_id_value,
             ManagedTaskEntry {
                 abort: handle.abort_handle(),
+                cancel_token: cancel_token.clone(),
                 completion,
-                token: token.clone(),
             },
         );
 
         start.cancel();
-        ManagedTask::new(task_id_value, handle, token)
+        ManagedTask::new(task_id_value, handle, cancel_token)
     }
 
     // Public methods
@@ -163,7 +163,7 @@ impl TaskManager {
     #[inline]
     pub fn cancel(&self, id: TaskId) -> bool {
         self.entries.get(&id).is_some_and(|kv| {
-            kv.token.as_ref().is_some_and(|t| {
+            kv.cancel_token.as_ref().is_some_and(|t| {
                 t.cancel();
                 true
             })
@@ -173,8 +173,8 @@ impl TaskManager {
     pub fn cancel_existing(&self) {
         let _registration_lock = self.registration_lock.lock();
         self.entries.iter().for_each(|kv| {
-            if let Some(token) = &kv.token {
-                token.cancel();
+            if let Some(cancel_token) = &kv.cancel_token {
+                cancel_token.cancel();
             }
         });
     }
@@ -228,8 +228,8 @@ impl TaskManager {
         Fut: Future<Output = T> + Send + 'static,
         T: Send + 'static,
     {
-        let token = CancellationToken::new();
-        self.spawn_inner(f(token.clone()), Some(token))
+        let cancel_token = CancellationToken::new();
+        self.spawn_inner(f(cancel_token.clone()), Some(cancel_token))
     }
 
     #[inline]

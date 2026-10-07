@@ -52,8 +52,8 @@ fn spawn_yielding_tasks(manager: &TaskManager, count: usize) {
 
 fn spawn_cancellable_tasks(manager: &TaskManager, count: usize) {
     for _ in 0..count {
-        manager.spawn_with_token(|token| async move {
-            token.cancelled().await;
+        manager.spawn_with_token(async |cancel_token| {
+            cancel_token.cancelled().await;
             black_box(());
         });
     }
@@ -72,22 +72,22 @@ fn bench_single_task(c: &mut Criterion) {
     let mut group = c.benchmark_group("single_task");
 
     group.bench_function("tokio_spawn_join", |b| {
-        b.to_async(&runtime).iter(|| async {
+        b.to_async(&runtime).iter(async || {
             black_box(spawn(async { black_box(()) }).await.is_ok());
         });
     });
 
     group.bench_function("manager_spawn_join", |b| {
-        b.to_async(&runtime).iter(|| async {
+        b.to_async(&runtime).iter(async || {
             let task = manager.spawn(async { black_box(()) });
             black_box(task.join().await.is_ok());
         });
     });
 
     group.bench_function("manager_spawn_with_token_managed_cancel_join", |b| {
-        b.to_async(&runtime).iter(|| async {
-            let task = manager.spawn_with_token(|token| async move {
-                token.cancelled().await;
+        b.to_async(&runtime).iter(async || {
+            let task = manager.spawn_with_token(async |cancel_token| {
+                cancel_token.cancelled().await;
                 black_box(());
             });
 
@@ -97,9 +97,9 @@ fn bench_single_task(c: &mut Criterion) {
     });
 
     group.bench_function("manager_spawn_with_token_manager_cancel_join", |b| {
-        b.to_async(&runtime).iter(|| async {
-            let task = manager.spawn_with_token(|token| async move {
-                token.cancelled().await;
+        b.to_async(&runtime).iter(async || {
+            let task = manager.spawn_with_token(async |cancel_token| {
+                cancel_token.cancelled().await;
                 black_box(());
             });
 
@@ -120,7 +120,7 @@ fn bench_spawn_and_join_existing(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
             let manager = TaskManager::new();
 
-            b.to_async(&runtime).iter(|| async {
+            b.to_async(&runtime).iter(async || {
                 spawn_ready_tasks(&manager, count);
                 manager.join_existing().await;
                 black_box(manager.is_empty());
@@ -140,7 +140,7 @@ fn bench_join_existing(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
             let manager = TaskManager::new();
 
-            b.to_async(&runtime).iter(|| async {
+            b.to_async(&runtime).iter(async || {
                 spawn_yielding_tasks(&manager, count);
                 manager.join_existing().await;
                 black_box(manager.is_empty());
@@ -160,7 +160,7 @@ fn bench_cancel_and_join_existing(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
             let manager = TaskManager::new();
 
-            b.to_async(&runtime).iter(|| async {
+            b.to_async(&runtime).iter(async || {
                 spawn_cancellable_tasks(&manager, count);
                 manager.cancel_and_join_existing().await;
                 black_box(manager.is_empty());
@@ -180,7 +180,7 @@ fn bench_abort_and_join_existing(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::from_parameter(count), &count, |b, &count| {
             let manager = TaskManager::new();
 
-            b.to_async(&runtime).iter(|| async {
+            b.to_async(&runtime).iter(async || {
                 spawn_pending_tasks(&manager, count);
                 manager.abort_and_join_existing().await;
                 black_box(manager.is_empty());

@@ -68,8 +68,8 @@ async fn managed_task_cancel_only_works_with_a_token() {
     assert!(!task.cancel());
     task.join().await.unwrap();
 
-    let task = manager.spawn_with_token(|token| async move {
-        token.cancelled().await;
+    let task = manager.spawn_with_token(async |cancel_token| {
+        cancel_token.cancelled().await;
         42
     });
 
@@ -86,8 +86,8 @@ async fn manager_cancel_by_id_handles_token_and_non_token_tasks() {
     let non_token_task_id = non_token_task.id();
     assert!(!manager.cancel(non_token_task_id));
 
-    let token_task = manager.spawn_with_token(|token| async move {
-        token.cancelled().await;
+    let token_task = manager.spawn_with_token(async |cancel_token| {
+        cancel_token.cancelled().await;
     });
 
     let token_task_id = token_task.id();
@@ -140,8 +140,8 @@ async fn cancel_and_join_existing_is_cooperative() {
     let manager = TaskManager::new();
 
     for _ in 0..16 {
-        manager.spawn_with_token(|token| async move {
-            token.cancelled().await;
+        manager.spawn_with_token(async |cancel_token| {
+            cancel_token.cancelled().await;
         });
     }
 
@@ -174,8 +174,8 @@ async fn abort_existing_and_abort_and_join_existing_cancel_tasks() {
 async fn manager_remains_reusable_after_draining_tasks() {
     let manager = TaskManager::default();
 
-    manager.spawn_with_token(|token| async move {
-        token.cancelled().await;
+    manager.spawn_with_token(async |cancel_token| {
+        cancel_token.cancelled().await;
     });
 
     manager.cancel_and_join_existing().await;
