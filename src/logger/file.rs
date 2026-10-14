@@ -108,13 +108,13 @@ impl RotatingLogFile {
                         if index == self.backup_count {
                             Self::remove_file_if_exists(&current_path)?;
                         } else {
-                            current_path.move_to_sync(next_path)?;
+                            current_path.rename_to_sync(next_path)?;
                         }
                     }
                 }
 
                 if self.path.exists_sync()? {
-                    self.path.move_to_sync(rotated_path(&self.path, 1))?;
+                    self.path.rename_to_sync(rotated_path(&self.path, 1))?;
                 }
             }
 
