@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.12.1
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.12.0...v0.12.1)
+
+### 🩹 Fixes
+
+- Rename `move_to_sync` to `rename_to_sync` due to `pathkit` upgrade ([df87e61](https://github.com/kikiutils/rust/commit/df87e61))
+
+### 💅 Refactors
+
+- **task:** Adopt async closures and clarify cancellation token names ([5cbc2d6](https://github.com/kikiutils/rust/commit/5cbc2d6))
+
+### 📦 Build
+
+- **lint:** Migrate from Dylint to native Mordant ([e883385](https://github.com/kikiutils/rust/commit/e883385))
+
+### 🏡 Chore
+
+- Update `.gitignore` ([6e4ccf7](https://github.com/kikiutils/rust/commit/6e4ccf7))
+- Update dylint mordant repo rev and bump toolchain channel to `nightly-2026-10-01` ([f74a335](https://github.com/kikiutils/rust/commit/f74a335))
+- Update ignore files ([315edf8](https://github.com/kikiutils/rust/commit/315edf8))
+- Upgrade deps ([34f3883](https://github.com/kikiutils/rust/commit/34f3883))
+- Set mordant config ([fbd685d](https://github.com/kikiutils/rust/commit/fbd685d))
+- Update `modify-files-permissions.sh` ([5fcc07d](https://github.com/kikiutils/rust/commit/5fcc07d))
+- Upgrade deps ([e6f5577](https://github.com/kikiutils/rust/commit/e6f5577))
+- Upgrade deps ([02714b1](https://github.com/kikiutils/rust/commit/02714b1))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.12.0
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.11.3...v0.12.0)
