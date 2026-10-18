@@ -262,8 +262,7 @@ mod tests {
     fn unique_temp_dir(label: &str) -> Path {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_nanos())
-            .unwrap_or_default();
+            .map_or_default(|duration| duration.as_nanos());
 
         path!(temp_dir()) / format!("kikiutils-logger-file-{label}-{nanos}")
     }

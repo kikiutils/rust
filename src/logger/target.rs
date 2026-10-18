@@ -110,7 +110,7 @@ impl TargetFileWriter {
         let path = &self.state.base_dir / format!("{key}.log");
         let file = Arc::new(Mutex::new(RotatingLogFile::new(path, self.state.rotation_options)?));
 
-        files.insert(key.to_string(), Arc::clone(&file));
+        files.insert(key.to_owned(), Arc::clone(&file));
         Ok(file)
     }
 
@@ -147,7 +147,7 @@ impl TargetFileWriter {
             .collect::<Vec<_>>()
             .join("/");
 
-        if key.is_empty() { "_default".to_string() } else { key }
+        if key.is_empty() { "_default".to_owned() } else { key }
     }
 }
 
@@ -200,7 +200,7 @@ fn sanitize_target_segment(value: &str) -> String {
         })
         .collect::<String>()
         .trim_matches('.')
-        .to_string()
+        .to_owned()
 }
 
 #[cfg(test)]
@@ -289,8 +289,7 @@ mod tests {
     fn unique_temp_dir(label: &str) -> Path {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_nanos())
-            .unwrap_or_default();
+            .map_or_default(|duration| duration.as_nanos());
 
         path!(temp_dir()) / format!("kikiutils-logger-target-{label}-{nanos}")
     }

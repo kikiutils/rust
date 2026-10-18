@@ -107,7 +107,7 @@ impl NonBlockingConsoleWriter {
     pub(super) fn spawn(options: LoggerNonBlockingOptions) -> Result<(Self, LoggerWorkerGuard)> {
         let (sender, receiver) = sync_channel(options.channel_capacity);
         let handle = Builder::new()
-            .name("kikiutils-logger-console".to_string())
+            .name("kikiutils-logger-console".to_owned())
             .spawn(move || run_console_worker(&receiver))
             .context("failed to spawn console logger worker")?;
 
@@ -154,7 +154,7 @@ impl NonBlockingFileWriter {
         let writer = TargetFileWriter::new(file_options).context("failed to initialize file log writer")?;
         let (sender, receiver) = sync_channel(worker_options.channel_capacity);
         let handle = Builder::new()
-            .name("kikiutils-logger-file".to_string())
+            .name("kikiutils-logger-file".to_owned())
             .spawn(move || run_file_worker(&receiver, &writer))
             .context("failed to spawn file logger worker")?;
 
@@ -279,7 +279,7 @@ mod tests {
             full_policy: LoggerQueueFullPolicy::DropNewest,
             sender,
         };
-        let mut writer = NonBlockingLogWriter::new(queue, "target".to_string());
+        let mut writer = NonBlockingLogWriter::new(queue, "target".to_owned());
 
         assert_eq!(writer.write(b"hello")?, 5);
 

@@ -86,8 +86,7 @@ fn init_logger_writes_console_and_rotating_target_files() -> Result<()> {
 fn unique_temp_dir() -> Path {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
+        .map_or_default(|duration| duration.as_nanos());
 
     path!(temp_dir()) / format!("kikiutils-logger-integration-{nanos}")
 }

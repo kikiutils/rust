@@ -287,7 +287,7 @@ fn env_usize(key: &str, default: usize) -> Result<usize> {
 fn env_value(key: &str) -> Option<String> {
     var(key)
         .ok()
-        .map(|value| value.trim().to_string())
+        .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
 }
 
