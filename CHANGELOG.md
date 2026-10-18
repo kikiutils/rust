@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.12.2
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.12.1...v0.12.2)
+
+### 🩹 Fixes
+
+- **deps:** Relax minimum dependency patch versions ([799c85d](https://github.com/kikiutils/rust/commit/799c85d))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.12.1
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.12.0...v0.12.1)
