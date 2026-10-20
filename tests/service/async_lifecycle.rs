@@ -1,11 +1,15 @@
 #![allow(clippy::unwrap_used)]
 
-use std::sync::{
-    Arc,
-    atomic::{
-        AtomicBool,
-        Ordering,
+use std::{
+    future::pending,
+    sync::{
+        Arc,
+        atomic::{
+            AtomicBool,
+            Ordering,
+        },
     },
+    time::Duration,
 };
 
 use anyhow::{
@@ -25,7 +29,13 @@ use kikiutils::{
     },
     task::manager::TaskManager,
 };
-use tokio::sync::Mutex;
+use tokio::{
+    sync::Mutex,
+    time::timeout,
+};
+
+// Constants/Statics
+const CANCEL_AFTER: Duration = Duration::from_millis(20);
 
 // Structs
 struct TestService {
@@ -188,4 +198,42 @@ async fn execute_stop_retries_cleanup_after_cleanup_failed() {
 
     assert!(service.cleanup_called.load(Ordering::SeqCst));
     assert_eq!(service.state.get(), ServiceState::Stopped);
+}
+
+#[tokio::test]
+async fn cancelled_start_requires_cleanup_before_restart() {
+    let service = TestService::new(ServiceState::Stopped);
+
+    assert!(
+        timeout(CANCEL_AFTER, service.execute_start(pending::<Result<()>>()))
+            .await
+            .is_err()
+    );
+
+    assert_eq!(service.state.get(), ServiceState::CleanupFailed);
+    assert!(service.execute_start(async { Result::<()>::Ok(()) }).await.is_err());
+
+    service.execute_stop().await.unwrap();
+    assert!(service.cleanup_called.load(Ordering::SeqCst));
+    assert_eq!(service.state.get(), ServiceState::Stopped);
+
+    service.execute_start(async { Result::<()>::Ok(()) }).await.unwrap();
+    assert_eq!(service.state.get(), ServiceState::Running);
+}
+
+#[tokio::test]
+async fn cancelled_stop_lets_the_next_stop_retry_cleanup() {
+    let service = TestService::new(ServiceState::Running);
+
+    // A task without a cancel token keeps `join_existing` waiting until it is aborted.
+    service.task_manager.spawn(pending::<()>());
+
+    assert!(timeout(CANCEL_AFTER, service.execute_stop()).await.is_err());
+    assert_eq!(service.state.get(), ServiceState::CleanupFailed);
+
+    service.task_manager.abort_existing();
+    service.execute_stop().await.unwrap();
+
+    assert_eq!(service.state.get(), ServiceState::Stopped);
+    assert!(service.task_manager.is_empty());
 }

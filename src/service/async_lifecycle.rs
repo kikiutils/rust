@@ -36,14 +36,21 @@ pub trait AsyncServiceLifecycle: AsyncServiceLifecycleHooks + Send + Sync {
                 ServiceState::Stopped => self.state().store(ServiceState::Starting),
             }
 
-            if let Err(start_error) = start_future.await {
-                // Preserve the startup error; cleanup failure is represented by the resulting state.
-                let _ = cleanup_resources_and_join_tasks_and_set_state(self).await;
-                return Err(start_error);
-            }
+            let cancel_guard = CleanupFailedOnCancel::new(self.state());
+            let result = match start_future.await {
+                Ok(()) => {
+                    self.state().store(ServiceState::Running);
+                    Ok(())
+                },
+                Err(start_error) => {
+                    // Preserve the startup error; cleanup failure is represented by the resulting state.
+                    let _ = cleanup_resources_and_join_tasks_and_set_state(self).await;
+                    Err(start_error)
+                },
+            };
 
-            self.state().store(ServiceState::Running);
-            Ok(())
+            cancel_guard.disarm();
+            result
         }
     }
 
@@ -58,7 +65,10 @@ pub trait AsyncServiceLifecycle: AsyncServiceLifecycleHooks + Send + Sync {
                 },
             }
 
-            cleanup_resources_and_join_tasks_and_set_state(self).await
+            let cancel_guard = CleanupFailedOnCancel::new(self.state());
+            let result = cleanup_resources_and_join_tasks_and_set_state(self).await;
+            cancel_guard.disarm();
+            result
         }
     }
 }
@@ -66,6 +76,35 @@ pub trait AsyncServiceLifecycle: AsyncServiceLifecycleHooks + Send + Sync {
 #[async_trait]
 pub trait AsyncServiceLifecycleHooks: Send + Sync {
     async fn cleanup_resources(&self) -> Result<()>;
+}
+
+// Structs
+
+/// Marks the service as [`ServiceState::CleanupFailed`] if a start or stop future is dropped before it
+/// finishes, e.g. by a timeout or `select!`. Otherwise the state would stay `Starting` or `Stopping`,
+/// and later calls would silently return `Ok(())` while tasks and resources were left behind. From
+/// `CleanupFailed`, the next stop runs cleanup again and start is rejected until it succeeds.
+struct CleanupFailedOnCancel<'a> {
+    armed: bool,
+    state: &'a AtomicEnumCell<ServiceState>,
+}
+
+impl Drop for CleanupFailedOnCancel<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.state.store(ServiceState::CleanupFailed);
+        }
+    }
+}
+
+impl<'a> CleanupFailedOnCancel<'a> {
+    fn new(state: &'a AtomicEnumCell<ServiceState>) -> Self {
+        Self { armed: true, state }
+    }
+
+    fn disarm(mut self) {
+        self.armed = false;
+    }
 }
 
 // Functions
