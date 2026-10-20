@@ -190,7 +190,6 @@ signal = [
 ]
 
 task = [
-  "dep:parking_lot",
   "dep:tokio",
   "dep:tokio-util",
   "fx-collections",
@@ -205,7 +204,6 @@ anyhow = { version = "1.0.104", optional = true }
 async-trait = { version = "0.1.92", optional = true }
 dashmap = { version = "6.2.0", optional = true }
 num_enum = "0.7.6"
-parking_lot = { version = "0.12.5", optional = true }
 pathkit = { version = "2.0.0", optional = true }
 rustc-hash = { version = "2.1.0", optional = true }
 time = { version = "0.3.55", features = ["formatting", "local-offset", "macros"], optional = true }
@@ -335,6 +333,7 @@ tikv-jemallocator = { version = "0.7.0", features = ["background_threads_runtime
 # Test/example/bench-only dependencies.
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["async_tokio"] }
+tokio = { version = "1.53.0", features = ["rt-multi-thread", "time"] }
 
 # -----------------------------------------------------------------------------
 # Target-specific development dependencies

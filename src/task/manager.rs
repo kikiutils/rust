@@ -1,15 +1,14 @@
 use std::{
     future::Future,
-    sync::{
-        Arc,
-        OnceLock,
-    },
+    sync::Arc,
 };
 
-use parking_lot::Mutex;
 use tokio::{
     spawn,
-    task::AbortHandle,
+    task::{
+        AbortHandle,
+        try_id,
+    },
 };
 use tokio_util::sync::CancellationToken;
 
@@ -27,17 +26,22 @@ enum DrainAction {
 }
 
 // Structs
+
+/// Lives inside the spawned future, so it runs when the task completes, panics, is aborted or is
+/// dropped by runtime shutdown. Tokio sets the task ID while dropping a task's future, so
+/// [`try_id`] identifies the task here.
 struct CleanupOnDrop {
     completion: CancellationToken,
     entries: Arc<FxDashMap<TaskId, ManagedTaskEntry>>,
-    id: Arc<OnceLock<TaskId>>,
 }
 
 impl Drop for CleanupOnDrop {
     fn drop(&mut self) {
+        // Cancel before removing: `spawn_inner` relies on this order to detect tasks that finished
+        // before their entry was registered.
         self.completion.cancel();
-        if let Some(id) = self.id.get() {
-            self.entries.remove(id);
+        if let Some(id) = try_id() {
+            self.entries.remove(&id);
         }
     }
 }
@@ -52,7 +56,6 @@ struct ManagedTaskEntry {
 #[derive(Debug)]
 pub struct TaskManager {
     entries: Arc<FxDashMap<TaskId, ManagedTaskEntry>>,
-    registration_lock: Mutex<()>,
 }
 
 impl Default for TaskManager {
@@ -66,16 +69,22 @@ impl TaskManager {
     pub fn new() -> Self {
         Self {
             entries: Arc::new(FxDashMap::default()),
-            registration_lock: Mutex::new(()),
         }
     }
 
     // Private methods
-    fn collect_existing_completions(&self, action: &DrainAction) -> Vec<CancellationToken> {
-        let _registration_lock = self.registration_lock.lock();
+    /// Applies `action` to every registered task except the calling one and returns their completion
+    /// tokens. Skipping the caller keeps a managed task from aborting or cancelling itself, and from
+    /// waiting for itself forever.
+    fn apply_to_existing(&self, action: &DrainAction) -> Vec<CancellationToken> {
+        let current_id = try_id();
         let mut completions = Vec::with_capacity(self.entries.len());
 
         for entry in self.entries.iter() {
+            if current_id == Some(*entry.key()) {
+                continue;
+            }
+
             match action {
                 DrainAction::Abort => entry.abort.abort(),
                 DrainAction::Cancel => {
@@ -93,7 +102,7 @@ impl TaskManager {
     }
 
     async fn drain_and_join_existing(&self, action: DrainAction) {
-        let completions = self.collect_existing_completions(&action);
+        let completions = self.apply_to_existing(&action);
 
         for completion in completions {
             completion.cancelled().await;
@@ -105,41 +114,35 @@ impl TaskManager {
         F: Future<Output = T> + Send + 'static,
         T: Send + 'static,
     {
-        let _registration_lock = self.registration_lock.lock();
-
-        let entries = Arc::clone(&self.entries);
-        let start = CancellationToken::new();
         let completion = CancellationToken::new();
-        let task_id = Arc::new(OnceLock::new());
         let cleanup = CleanupOnDrop {
             completion: completion.clone(),
-            entries: Arc::clone(&entries),
-            id: Arc::clone(&task_id),
+            entries: Arc::clone(&self.entries),
         };
 
-        let task_start = start.clone();
         let handle = spawn(async move {
             let _cleanup = cleanup;
-            task_start.cancelled().await;
             future.await
         });
 
-        let task_id_value = handle.id();
-        let _ = task_id.set(task_id_value);
-
-        // The task cannot finish before this entry is registered because the startup gate is closed.
-        // The ID is assigned by Tokio and is also available to callers through JoinHandle::id().
+        let task_id = handle.id();
         self.entries.insert(
-            task_id_value,
+            task_id,
             ManagedTaskEntry {
                 abort: handle.abort_handle(),
                 cancel_token: cancel_token.clone(),
-                completion,
+                completion: completion.clone(),
             },
         );
 
-        start.cancel();
-        ManagedTask::new(task_id_value, handle, cancel_token)
+        // The task may have finished before it was registered, in which case its cleanup found no
+        // entry to remove. Cleanup cancels `completion` before removing, so either this check sees the
+        // cancellation or the cleanup's removal runs after the insert above.
+        if completion.is_cancelled() {
+            self.entries.remove(&task_id);
+        }
+
+        ManagedTask::new(task_id, handle, cancel_token)
     }
 
     // Public methods
@@ -151,11 +154,16 @@ impl TaskManager {
         })
     }
 
+    /// Aborts every registered task.
+    ///
+    /// When called from a task managed by this manager, the calling task is skipped.
     pub fn abort_existing(&self) {
-        let _registration_lock = self.registration_lock.lock();
-        self.entries.iter().for_each(|kv| kv.abort.abort());
+        self.apply_to_existing(&DrainAction::Abort);
     }
 
+    /// Aborts every registered task and waits for them to finish.
+    ///
+    /// When called from a task managed by this manager, the calling task is skipped.
     pub async fn abort_and_join_existing(&self) {
         self.drain_and_join_existing(DrainAction::Abort).await;
     }
@@ -170,22 +178,18 @@ impl TaskManager {
         })
     }
 
+    /// Cancels the token of every registered task.
+    ///
+    /// When called from a task managed by this manager, the calling task is skipped.
     pub fn cancel_existing(&self) {
-        let _registration_lock = self.registration_lock.lock();
-        self.entries.iter().for_each(|kv| {
-            if let Some(cancel_token) = &kv.cancel_token {
-                cancel_token.cancel();
-            }
-        });
+        self.apply_to_existing(&DrainAction::Cancel);
     }
 
+    /// Cancels the token of every registered task and waits for them to finish.
+    ///
+    /// When called from a task managed by this manager, the calling task is skipped.
     pub async fn cancel_and_join_existing(&self) {
         self.drain_and_join_existing(DrainAction::Cancel).await;
-    }
-
-    #[inline]
-    pub fn has_tasks(&self) -> bool {
-        !self.is_empty()
     }
 
     #[inline]
@@ -193,7 +197,13 @@ impl TaskManager {
         self.entries.is_empty()
     }
 
+    /// Waits for the task with `id` to finish. Returns `false` if it is not registered or is the
+    /// calling task itself, which would otherwise wait for itself forever.
     pub async fn join(&self, id: TaskId) -> bool {
+        if try_id() == Some(id) {
+            return false;
+        }
+
         let completion = self.entries.get(&id).map(|entry| entry.completion.clone());
         let Some(completion) = completion else {
             return false;
@@ -203,6 +213,9 @@ impl TaskManager {
         true
     }
 
+    /// Waits for every currently registered task to finish.
+    ///
+    /// When called from a task managed by this manager, the calling task is skipped.
     pub async fn join_existing(&self) {
         self.drain_and_join_existing(DrainAction::None).await;
     }
@@ -230,10 +243,5 @@ impl TaskManager {
     {
         let cancel_token = CancellationToken::new();
         self.spawn_inner(f(cancel_token.clone()), Some(cancel_token))
-    }
-
-    #[inline]
-    pub fn task_count(&self) -> usize {
-        self.len()
     }
 }
