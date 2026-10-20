@@ -199,4 +199,5 @@ criterion_group!(
     bench_cancel_and_join_existing,
     bench_abort_and_join_existing,
 );
+
 criterion_main!(benches);

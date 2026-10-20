@@ -19,6 +19,7 @@ use std::{
 use anyhow::{
     Context,
     Result,
+    anyhow,
     bail,
 };
 use tracing::Metadata;
@@ -84,13 +85,11 @@ impl LoggerWorkerGuard {
             .recv()
             .context("failed to receive logger shutdown acknowledgement")?;
 
-        handle
-            .join()
-            .map_err(|_| anyhow::anyhow!("logger worker thread panicked"))
+        handle.join().map_err(|_| anyhow!("logger worker thread panicked"))
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct NonBlockingConsoleWriter {
     queue: NonBlockingQueue,
 }
@@ -123,7 +122,7 @@ impl NonBlockingConsoleWriter {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct NonBlockingFileWriter {
     queue: NonBlockingQueue,
 }
@@ -210,7 +209,7 @@ impl NonBlockingLogWriter {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 struct NonBlockingQueue {
     full_policy: LoggerQueueFullPolicy,
     sender: SyncSender<LoggerCommand>,
@@ -279,6 +278,7 @@ mod tests {
             full_policy: LoggerQueueFullPolicy::DropNewest,
             sender,
         };
+
         let mut writer = NonBlockingLogWriter::new(queue, "target".to_owned());
 
         assert_eq!(writer.write(b"hello")?, 5);
@@ -301,10 +301,12 @@ mod tests {
             bytes: b"existing".to_vec(),
             key: String::new(),
         })?;
+
         let queue = NonBlockingQueue {
             full_policy: LoggerQueueFullPolicy::DropNewest,
             sender,
         };
+
         let mut writer = NonBlockingLogWriter::new(queue, String::new());
 
         assert_eq!(writer.write(b"dropped")?, 7);

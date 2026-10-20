@@ -77,7 +77,7 @@ impl<T: Eq + Into<u8> + PartialEq + TryFrom<u8>> AtomicEnumCell<T> {
 mod tests {
     use super::AtomicEnumCell;
 
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum TestState {
         Init,
         Ready,

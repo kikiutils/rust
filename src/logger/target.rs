@@ -54,7 +54,7 @@ impl TargetWriterFile<'_> {
 }
 
 // Structs
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct TargetFileWriter {
     state: Arc<TargetFileWriterState>,
 }

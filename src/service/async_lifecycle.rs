@@ -18,7 +18,9 @@ use crate::{
 
 pub trait AsyncServiceLifecycle: AsyncServiceLifecycleHooks + Send + Sync {
     fn lifecycle_lock(&self) -> &Mutex<()>;
+
     fn state(&self) -> &AtomicEnumCell<ServiceState>;
+
     fn task_manager(&self) -> &TaskManager;
 
     fn execute_start<Fut: Future<Output = Result<()>> + Send>(

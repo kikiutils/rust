@@ -27,7 +27,7 @@ const ENV_LOGGER_FILE_ROTATION_MAX_BYTES: &str = "LOGGER_FILE_ROTATION_MAX_BYTES
 const ENV_LOGGER_QUEUE_FULL_POLICY: &str = "LOGGER_QUEUE_FULL_POLICY";
 
 // Enums
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LoggerLogLevel {
     Trace,
     Debug,
@@ -51,7 +51,7 @@ impl LoggerLogLevel {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LoggerQueueFullPolicy {
     Block,
     #[default]
@@ -59,7 +59,7 @@ pub enum LoggerQueueFullPolicy {
 }
 
 // Structs
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct LoggerConsoleOutputOptions {
     pub ansi_enabled: bool,
     pub include_target: bool,
@@ -76,7 +76,7 @@ impl Default for LoggerConsoleOutputOptions {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct LoggerFileOutputOptions {
     pub base_dir: Path,
     pub level: LoggerLogLevel,
@@ -93,7 +93,7 @@ impl LoggerFileOutputOptions {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LoggerFileRotationOptions {
     pub backup_file_count: usize,
     pub max_bytes_per_file: u64,
@@ -108,7 +108,7 @@ impl Default for LoggerFileRotationOptions {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct LoggerNonBlockingOptions {
     pub channel_capacity: usize,
     pub queue_full_policy: LoggerQueueFullPolicy,
@@ -123,7 +123,7 @@ impl Default for LoggerNonBlockingOptions {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct LoggerInitOptions {
     pub console_output: Option<LoggerConsoleOutputOptions>,
     pub file_output: Option<LoggerFileOutputOptions>,
@@ -271,7 +271,7 @@ fn env_u64(key: &str, default: u64) -> Result<u64> {
 
     value
         .parse::<u64>()
-        .map_err(|error| anyhow::anyhow!("{key} must be a non-negative integer: {error}"))
+        .map_err(|error| anyhow!("{key} must be a non-negative integer: {error}"))
 }
 
 fn env_usize(key: &str, default: usize) -> Result<usize> {
@@ -371,7 +371,7 @@ mod tests {
             let options = LoggerInitOptions::from_env()?;
             let console = options
                 .console_output
-                .ok_or_else(|| anyhow::anyhow!("console output should default to enabled"))?;
+                .ok_or_else(|| anyhow!("console output should default to enabled"))?;
 
             assert!(console.ansi_enabled);
             assert!(console.include_target);
@@ -409,10 +409,11 @@ mod tests {
                 let options = LoggerInitOptions::from_env()?;
                 let console = options
                     .console_output
-                    .ok_or_else(|| anyhow::anyhow!("console output should be enabled"))?;
+                    .ok_or_else(|| anyhow!("console output should be enabled"))?;
+
                 let file = options
                     .file_output
-                    .ok_or_else(|| anyhow::anyhow!("file output should be enabled"))?;
+                    .ok_or_else(|| anyhow!("file output should be enabled"))?;
 
                 assert!(!console.ansi_enabled);
                 assert!(!console.include_target);
@@ -426,6 +427,7 @@ mod tests {
                         max_bytes_per_file: 123,
                     })
                 );
+
                 assert_eq!(options.non_blocking.channel_capacity, 1024);
                 assert_eq!(options.non_blocking.queue_full_policy, LoggerQueueFullPolicy::Block);
 
@@ -447,7 +449,7 @@ mod tests {
                 let options = LoggerInitOptions::from_env()?;
                 let file = options
                     .file_output
-                    .ok_or_else(|| anyhow::anyhow!("file output should be enabled"))?;
+                    .ok_or_else(|| anyhow!("file output should be enabled"))?;
 
                 assert!(options.console_output.is_none());
                 assert_eq!(file.rotation, None);
@@ -473,6 +475,7 @@ mod tests {
             ],
             LoggerInitOptions::from_env,
         );
+
         assert!(zero_rotation.is_err());
 
         let zero_channel_capacity = with_logger_env(&[(ENV_LOGGER_CHANNEL_CAPACITY, "0")], LoggerInitOptions::from_env);
@@ -513,6 +516,7 @@ mod tests {
         for key in keys {
             remove_logger_env_var(key);
         }
+
         for (key, value) in values {
             set_logger_env_var(key, value);
         }

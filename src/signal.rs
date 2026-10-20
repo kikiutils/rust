@@ -1,13 +1,13 @@
 use std::future::Future;
 
 use anyhow::{
-    Error,
+    Error as AnyhowError,
     Result,
 };
 use tokio::signal::ctrl_c;
 
 pub async fn wait_for_shutdown_signal() -> Result<()> {
-    let ctrl_c = async { Ok::<(), Error>(ctrl_c().await?) };
+    let ctrl_c = async { Ok::<(), AnyhowError>(ctrl_c().await?) };
 
     #[cfg(unix)]
     {
@@ -19,7 +19,7 @@ pub async fn wait_for_shutdown_signal() -> Result<()> {
         let sigterm = async {
             let mut term_signal = signal(SignalKind::terminate())?;
             term_signal.recv().await;
-            Ok::<(), Error>(())
+            Ok::<(), AnyhowError>(())
         };
 
         wait_for_shutdown_signal_from(ctrl_c, sigterm).await
