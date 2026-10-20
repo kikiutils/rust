@@ -178,6 +178,7 @@ global-allocator = [
 logger = [
   "dep:anyhow",
   "dep:pathkit",
+  "dep:rustc-hash",
   "dep:time",
   "dep:tracing",
   "dep:tracing-subscriber",
@@ -211,7 +212,7 @@ time = { version = "0.3.55", features = ["formatting", "local-offset", "macros"]
 tokio = { version = "1.53.0", features = ["macros", "rt", "signal", "sync"], optional = true }
 tokio-util = { version = "0.7.20", optional = true }
 tracing = { version = "0.1.44", optional = true }
-tracing-subscriber = { version = "0.3.23", features = ["time"], optional = true }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"], optional = true }
 
 # -----------------------------------------------------------------------------
 # OS / family-specific dependencies

@@ -6,49 +6,28 @@ use anyhow::{
     bail,
 };
 use pathkit::Path;
-use tracing_subscriber::filter::LevelFilter;
 
 // Constants/Statics
 const DEFAULT_CHANNEL_CAPACITY: usize = 8192;
-const DEFAULT_ROTATION_MAX_BYTES: u64 = 5 * 1024 * 1024;
-const DEFAULT_ROTATION_BACKUP_COUNT: usize = 5;
-const ENV_LOG_LEVEL: &str = "RUST_LOG";
+const DEFAULT_FILTER: &str = "info";
+const ENV_LOG_FILTER: &str = "RUST_LOG";
 const ENV_LOGGER_CHANNEL_CAPACITY: &str = "LOGGER_CHANNEL_CAPACITY";
 const ENV_LOGGER_CONSOLE_ANSI: &str = "LOGGER_CONSOLE_ANSI";
 const ENV_LOGGER_CONSOLE_ENABLED: &str = "LOGGER_CONSOLE_ENABLED";
 const ENV_LOGGER_CONSOLE_LEVEL: &str = "LOGGER_CONSOLE_LEVEL";
+const ENV_LOGGER_CONSOLE_STREAM: &str = "LOGGER_CONSOLE_STREAM";
 const ENV_LOGGER_CONSOLE_TARGET: &str = "LOGGER_CONSOLE_TARGET";
 const ENV_LOGGER_FILE_BASE_DIR: &str = "LOGGER_LOG_DIR";
 const ENV_LOGGER_FILE_ENABLED: &str = "LOGGER_LOG_TO_FILE";
 const ENV_LOGGER_FILE_LEVEL: &str = "LOGGER_FILE_LEVEL";
-const ENV_LOGGER_FILE_ROTATION_BACKUP_COUNT: &str = "LOGGER_FILE_ROTATION_BACKUP_COUNT";
-const ENV_LOGGER_FILE_ROTATION_ENABLED: &str = "LOGGER_FILE_ROTATION_ENABLED";
-const ENV_LOGGER_FILE_ROTATION_MAX_BYTES: &str = "LOGGER_FILE_ROTATION_MAX_BYTES";
 const ENV_LOGGER_QUEUE_FULL_POLICY: &str = "LOGGER_QUEUE_FULL_POLICY";
 
 // Enums
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum LoggerLogLevel {
-    Trace,
-    Debug,
+pub enum LoggerConsoleStream {
     #[default]
-    Info,
-    Warn,
-    Error,
-    Off,
-}
-
-impl LoggerLogLevel {
-    pub(super) fn as_level_filter(self) -> LevelFilter {
-        match self {
-            Self::Trace => LevelFilter::TRACE,
-            Self::Debug => LevelFilter::DEBUG,
-            Self::Info => LevelFilter::INFO,
-            Self::Warn => LevelFilter::WARN,
-            Self::Error => LevelFilter::ERROR,
-            Self::Off => LevelFilter::OFF,
-        }
-    }
+    Stdout,
+    Stderr,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -62,16 +41,19 @@ pub enum LoggerQueueFullPolicy {
 #[derive(Debug, Clone)]
 pub struct LoggerConsoleOutputOptions {
     pub ansi_enabled: bool,
+    /// [`EnvFilter`](tracing_subscriber::EnvFilter) directives, e.g. `info` or `info,hyper=warn`.
+    pub filter: String,
     pub include_target: bool,
-    pub level: LoggerLogLevel,
+    pub stream: LoggerConsoleStream,
 }
 
 impl Default for LoggerConsoleOutputOptions {
     fn default() -> Self {
         Self {
             ansi_enabled: true,
+            filter: DEFAULT_FILTER.to_owned(),
             include_target: true,
-            level: LoggerLogLevel::Info,
+            stream: LoggerConsoleStream::Stdout,
         }
     }
 }
@@ -79,31 +61,15 @@ impl Default for LoggerConsoleOutputOptions {
 #[derive(Debug, Clone)]
 pub struct LoggerFileOutputOptions {
     pub base_dir: Path,
-    pub level: LoggerLogLevel,
-    pub rotation: Option<LoggerFileRotationOptions>,
+    /// [`EnvFilter`](tracing_subscriber::EnvFilter) directives, e.g. `info` or `info,hyper=warn`.
+    pub filter: String,
 }
 
 impl LoggerFileOutputOptions {
     pub fn new(base_dir: impl Into<Path>) -> Self {
         Self {
             base_dir: base_dir.into(),
-            level: LoggerLogLevel::Info,
-            rotation: Some(LoggerFileRotationOptions::default()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LoggerFileRotationOptions {
-    pub backup_file_count: usize,
-    pub max_bytes_per_file: u64,
-}
-
-impl Default for LoggerFileRotationOptions {
-    fn default() -> Self {
-        Self {
-            backup_file_count: DEFAULT_ROTATION_BACKUP_COUNT,
-            max_bytes_per_file: DEFAULT_ROTATION_MAX_BYTES,
+            filter: DEFAULT_FILTER.to_owned(),
         }
     }
 }
@@ -153,393 +119,173 @@ impl LoggerInitOptions {
     /// Builds logger initialization options from environment variables.
     ///
     /// Reads these keys:
-    /// - `RUST_LOG`
+    /// - `RUST_LOG`: default filter directives for all outputs
     /// - `LOGGER_CHANNEL_CAPACITY`
     /// - `LOGGER_CONSOLE_ENABLED`
-    /// - `LOGGER_CONSOLE_LEVEL`
+    /// - `LOGGER_CONSOLE_LEVEL`: console filter directives, overrides `RUST_LOG`
+    /// - `LOGGER_CONSOLE_STREAM`: `stdout` or `stderr`
     /// - `LOGGER_CONSOLE_TARGET`
     /// - `LOGGER_CONSOLE_ANSI`
-    /// - `LOGGER_FILE_LEVEL`
-    /// - `LOGGER_FILE_ROTATION_ENABLED`
-    /// - `LOGGER_FILE_ROTATION_MAX_BYTES`
-    /// - `LOGGER_FILE_ROTATION_BACKUP_COUNT`
+    /// - `LOGGER_FILE_LEVEL`: file filter directives, overrides `RUST_LOG`
     /// - `LOGGER_LOG_DIR`
     /// - `LOGGER_LOG_TO_FILE`
     /// - `LOGGER_QUEUE_FULL_POLICY`
+    ///
+    /// Filter directives are validated by [`init_logger`](super::init_logger).
     pub fn from_env() -> Result<Self> {
-        let default_level = env_log_level(ENV_LOG_LEVEL, LoggerLogLevel::Info)?;
-        let console_output = if env_bool(ENV_LOGGER_CONSOLE_ENABLED, true)? {
+        Self::from_lookup(|key| var(key).ok())
+    }
+
+    // Private methods
+    fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Self> {
+        let env = EnvReader(lookup);
+        let default_filter = env.value(ENV_LOG_FILTER).unwrap_or_else(|| DEFAULT_FILTER.to_owned());
+        let console_output = if env.bool(ENV_LOGGER_CONSOLE_ENABLED, true)? {
             Some(LoggerConsoleOutputOptions {
-                ansi_enabled: env_bool(ENV_LOGGER_CONSOLE_ANSI, true)?,
-                include_target: env_bool(ENV_LOGGER_CONSOLE_TARGET, true)?,
-                level: env_log_level(ENV_LOGGER_CONSOLE_LEVEL, default_level)?,
+                ansi_enabled: env.bool(ENV_LOGGER_CONSOLE_ANSI, true)?,
+                filter: env
+                    .value(ENV_LOGGER_CONSOLE_LEVEL)
+                    .unwrap_or_else(|| default_filter.clone()),
+                include_target: env.bool(ENV_LOGGER_CONSOLE_TARGET, true)?,
+                stream: env.console_stream()?,
             })
         } else {
             None
         };
 
-        let file_output = if env_bool(ENV_LOGGER_FILE_ENABLED, false)? {
+        let file_output = if env.bool(ENV_LOGGER_FILE_ENABLED, false)? {
+            let Some(base_dir) = env.value(ENV_LOGGER_FILE_BASE_DIR) else {
+                bail!("{ENV_LOGGER_FILE_BASE_DIR} is required when file logging is enabled");
+            };
+
             Some(LoggerFileOutputOptions {
-                base_dir: env_path(ENV_LOGGER_FILE_BASE_DIR)?,
-                level: env_log_level(ENV_LOGGER_FILE_LEVEL, default_level)?,
-                rotation: env_rotation_options()?,
+                base_dir: Path::from(base_dir),
+                filter: env.value(ENV_LOGGER_FILE_LEVEL).unwrap_or(default_filter),
             })
         } else {
             None
         };
 
-        let channel_capacity = env_usize(ENV_LOGGER_CHANNEL_CAPACITY, DEFAULT_CHANNEL_CAPACITY)?;
-        if channel_capacity == 0 {
-            bail!("{ENV_LOGGER_CHANNEL_CAPACITY} must be greater than 0");
-        }
+        let channel_capacity = match env.value(ENV_LOGGER_CHANNEL_CAPACITY) {
+            Some(value) => value
+                .parse()
+                .map_err(|error| anyhow!("{ENV_LOGGER_CHANNEL_CAPACITY} must be a non-negative integer: {error}"))?,
+            None => DEFAULT_CHANNEL_CAPACITY,
+        };
 
         Ok(Self {
             console_output,
             file_output,
             non_blocking: LoggerNonBlockingOptions {
                 channel_capacity,
-                queue_full_policy: env_queue_full_policy(
-                    ENV_LOGGER_QUEUE_FULL_POLICY,
-                    LoggerQueueFullPolicy::DropNewest,
-                )?,
+                queue_full_policy: env.queue_full_policy()?,
             },
         })
     }
 }
 
-// Functions
-fn env_bool(key: &str, default: bool) -> Result<bool> {
-    let Some(value) = env_value(key) else {
-        return Ok(default);
-    };
+struct EnvReader<F>(F);
 
-    match value.to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "y" | "on" => Ok(true),
-        "0" | "false" | "no" | "n" | "off" => Ok(false),
-        _ => bail!("{key} must be a boolean value"),
-    }
-}
+impl<F: Fn(&str) -> Option<String>> EnvReader<F> {
+    fn bool(&self, key: &str, default: bool) -> Result<bool> {
+        let Some(value) = self.value(key) else {
+            return Ok(default);
+        };
 
-fn env_log_level(key: &str, default: LoggerLogLevel) -> Result<LoggerLogLevel> {
-    let Some(value) = env_value(key) else {
-        return Ok(default);
-    };
-
-    parse_log_level(key, &value)
-}
-
-fn env_path(key: &str) -> Result<Path> {
-    let Some(value) = env_value(key) else {
-        bail!("{key} is required when file logging is enabled");
-    };
-
-    Ok(Path::from(value))
-}
-
-fn env_queue_full_policy(key: &str, default: LoggerQueueFullPolicy) -> Result<LoggerQueueFullPolicy> {
-    let Some(value) = env_value(key) else {
-        return Ok(default);
-    };
-
-    match value.to_ascii_lowercase().as_str() {
-        "block" | "blocking" => Ok(LoggerQueueFullPolicy::Block),
-        "drop" | "drop_newest" | "drop-newest" | "lossy" => Ok(LoggerQueueFullPolicy::DropNewest),
-        _ => bail!("{key} must be one of block, drop_newest"),
-    }
-}
-
-fn env_rotation_options() -> Result<Option<LoggerFileRotationOptions>> {
-    if !env_bool(ENV_LOGGER_FILE_ROTATION_ENABLED, true)? {
-        return Ok(None);
+        match value.to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "y" | "on" => Ok(true),
+            "0" | "false" | "no" | "n" | "off" => Ok(false),
+            _ => bail!("{key} must be a boolean value"),
+        }
     }
 
-    let max_bytes_per_file = env_u64(ENV_LOGGER_FILE_ROTATION_MAX_BYTES, DEFAULT_ROTATION_MAX_BYTES)?;
-    if max_bytes_per_file == 0 {
-        bail!("{ENV_LOGGER_FILE_ROTATION_MAX_BYTES} must be greater than 0 when file log rotation is enabled");
+    fn console_stream(&self) -> Result<LoggerConsoleStream> {
+        let Some(value) = self.value(ENV_LOGGER_CONSOLE_STREAM) else {
+            return Ok(LoggerConsoleStream::default());
+        };
+
+        match value.to_ascii_lowercase().as_str() {
+            "stdout" => Ok(LoggerConsoleStream::Stdout),
+            "stderr" => Ok(LoggerConsoleStream::Stderr),
+            _ => bail!("{ENV_LOGGER_CONSOLE_STREAM} must be one of stdout, stderr"),
+        }
     }
 
-    Ok(Some(LoggerFileRotationOptions {
-        backup_file_count: env_usize(ENV_LOGGER_FILE_ROTATION_BACKUP_COUNT, DEFAULT_ROTATION_BACKUP_COUNT)?,
-        max_bytes_per_file,
-    }))
-}
+    fn queue_full_policy(&self) -> Result<LoggerQueueFullPolicy> {
+        let Some(value) = self.value(ENV_LOGGER_QUEUE_FULL_POLICY) else {
+            return Ok(LoggerQueueFullPolicy::default());
+        };
 
-fn env_u64(key: &str, default: u64) -> Result<u64> {
-    let Some(value) = env_value(key) else {
-        return Ok(default);
-    };
+        match value.to_ascii_lowercase().as_str() {
+            "block" | "blocking" => Ok(LoggerQueueFullPolicy::Block),
+            "drop" | "drop_newest" | "drop-newest" | "lossy" => Ok(LoggerQueueFullPolicy::DropNewest),
+            _ => bail!("{ENV_LOGGER_QUEUE_FULL_POLICY} must be one of block, drop_newest"),
+        }
+    }
 
-    value
-        .parse::<u64>()
-        .map_err(|error| anyhow!("{key} must be a non-negative integer: {error}"))
-}
-
-fn env_usize(key: &str, default: usize) -> Result<usize> {
-    let Some(value) = env_value(key) else {
-        return Ok(default);
-    };
-
-    value
-        .parse::<usize>()
-        .map_err(|error| anyhow!("{key} must be a non-negative integer: {error}"))
-}
-
-fn env_value(key: &str) -> Option<String> {
-    var(key)
-        .ok()
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-}
-
-fn parse_log_level(key: &str, value: &str) -> Result<LoggerLogLevel> {
-    match value.to_ascii_lowercase().as_str() {
-        "trace" => Ok(LoggerLogLevel::Trace),
-        "debug" => Ok(LoggerLogLevel::Debug),
-        "info" => Ok(LoggerLogLevel::Info),
-        "warn" | "warning" => Ok(LoggerLogLevel::Warn),
-        "error" => Ok(LoggerLogLevel::Error),
-        "off" => Ok(LoggerLogLevel::Off),
-        _ => bail!("{key} must be one of trace, debug, info, warn, error, off"),
+    fn value(&self, key: &str) -> Option<String> {
+        (self.0)(key)
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        env::{
-            remove_var,
-            set_var,
-        },
-        sync::{
-            Mutex,
-            OnceLock,
-            PoisonError,
-        },
-    };
-
     use pathkit::path;
 
     use super::*;
 
-    #[test]
-    fn log_levels_map_to_level_filters() {
-        assert_eq!(LoggerLogLevel::Trace.as_level_filter(), LevelFilter::TRACE);
-        assert_eq!(LoggerLogLevel::Debug.as_level_filter(), LevelFilter::DEBUG);
-        assert_eq!(LoggerLogLevel::Info.as_level_filter(), LevelFilter::INFO);
-        assert_eq!(LoggerLogLevel::Warn.as_level_filter(), LevelFilter::WARN);
-        assert_eq!(LoggerLogLevel::Error.as_level_filter(), LevelFilter::ERROR);
-        assert_eq!(LoggerLogLevel::Off.as_level_filter(), LevelFilter::OFF);
-    }
-
-    #[test]
-    fn queue_full_policy_defaults_to_drop_newest() {
-        let options = LoggerNonBlockingOptions::default();
-
-        assert_eq!(options.channel_capacity, DEFAULT_CHANNEL_CAPACITY);
-        assert_eq!(options.queue_full_policy, LoggerQueueFullPolicy::DropNewest);
-    }
-
-    #[test]
-    fn defaults_match_logger_contract() {
-        let console = LoggerConsoleOutputOptions::default();
-        assert!(console.ansi_enabled);
-        assert!(console.include_target);
-        assert_eq!(console.level, LoggerLogLevel::Info);
-
-        let rotation = LoggerFileRotationOptions::default();
-        assert_eq!(rotation.backup_file_count, DEFAULT_ROTATION_BACKUP_COUNT);
-        assert_eq!(rotation.max_bytes_per_file, DEFAULT_ROTATION_MAX_BYTES);
-
-        let file = LoggerFileOutputOptions::new("logs");
-        assert_eq!(file.base_dir, path!("logs"));
-        assert_eq!(file.level, LoggerLogLevel::Info);
-        assert_eq!(file.rotation, Some(rotation));
-
-        let default_options = LoggerInitOptions::default();
-        assert!(default_options.console_output.is_some());
-        assert!(default_options.file_output.is_none());
-        assert_eq!(default_options.non_blocking.channel_capacity, DEFAULT_CHANNEL_CAPACITY);
-
-        let disabled = LoggerInitOptions::disabled();
-        assert!(disabled.console_output.is_none());
-        assert!(disabled.file_output.is_none());
-    }
-
-    #[test]
-    fn from_env_uses_defaults_when_logger_env_is_absent() -> Result<()> {
-        with_logger_env(&[], || {
-            let options = LoggerInitOptions::from_env()?;
-            let console = options
-                .console_output
-                .ok_or_else(|| anyhow!("console output should default to enabled"))?;
-
-            assert!(console.ansi_enabled);
-            assert!(console.include_target);
-            assert_eq!(console.level, LoggerLogLevel::Info);
-            assert!(options.file_output.is_none());
-            assert_eq!(options.non_blocking.channel_capacity, DEFAULT_CHANNEL_CAPACITY);
-            assert_eq!(
-                options.non_blocking.queue_full_policy,
-                LoggerQueueFullPolicy::DropNewest
-            );
-
-            Ok(())
+    fn from_pairs(pairs: &[(&str, &str)]) -> Result<LoggerInitOptions> {
+        LoggerInitOptions::from_lookup(|key| {
+            pairs
+                .iter()
+                .find(|(pair_key, _)| *pair_key == key)
+                .map(|(_, value)| (*value).to_owned())
         })
     }
 
     #[test]
-    fn from_env_builds_file_and_console_options() -> Result<()> {
-        with_logger_env(
-            &[
-                (ENV_LOG_LEVEL, "warn"),
-                (ENV_LOGGER_CONSOLE_ENABLED, "true"),
-                (ENV_LOGGER_CONSOLE_LEVEL, "debug"),
-                (ENV_LOGGER_CONSOLE_TARGET, "false"),
-                (ENV_LOGGER_CONSOLE_ANSI, "off"),
-                (ENV_LOGGER_FILE_ENABLED, "yes"),
-                (ENV_LOGGER_FILE_BASE_DIR, "env-logs"),
-                (ENV_LOGGER_FILE_LEVEL, "trace"),
-                (ENV_LOGGER_FILE_ROTATION_ENABLED, "on"),
-                (ENV_LOGGER_FILE_ROTATION_MAX_BYTES, "123"),
-                (ENV_LOGGER_FILE_ROTATION_BACKUP_COUNT, "0"),
-                (ENV_LOGGER_CHANNEL_CAPACITY, "1024"),
-                (ENV_LOGGER_QUEUE_FULL_POLICY, "block"),
-            ],
-            || {
-                let options = LoggerInitOptions::from_env()?;
-                let console = options
-                    .console_output
-                    .ok_or_else(|| anyhow!("console output should be enabled"))?;
+    fn from_env_applies_filter_fallbacks() -> Result<()> {
+        let options = from_pairs(&[
+            (ENV_LOG_FILTER, "warn,app=debug"),
+            (ENV_LOGGER_CONSOLE_STREAM, "stderr"),
+            (ENV_LOGGER_FILE_ENABLED, "true"),
+            (ENV_LOGGER_FILE_BASE_DIR, "env-logs"),
+            (ENV_LOGGER_FILE_LEVEL, "trace"),
+        ])?;
 
-                let file = options
-                    .file_output
-                    .ok_or_else(|| anyhow!("file output should be enabled"))?;
+        let console = options
+            .console_output
+            .ok_or_else(|| anyhow!("console output should be enabled"))?;
 
-                assert!(!console.ansi_enabled);
-                assert!(!console.include_target);
-                assert_eq!(console.level, LoggerLogLevel::Debug);
-                assert_eq!(file.base_dir, path!("env-logs"));
-                assert_eq!(file.level, LoggerLogLevel::Trace);
-                assert_eq!(
-                    file.rotation,
-                    Some(LoggerFileRotationOptions {
-                        backup_file_count: 0,
-                        max_bytes_per_file: 123,
-                    })
-                );
+        let file = options
+            .file_output
+            .ok_or_else(|| anyhow!("file output should be enabled"))?;
 
-                assert_eq!(options.non_blocking.channel_capacity, 1024);
-                assert_eq!(options.non_blocking.queue_full_policy, LoggerQueueFullPolicy::Block);
+        assert_eq!(console.filter, "warn,app=debug");
+        assert_eq!(console.stream, LoggerConsoleStream::Stderr);
+        assert_eq!(file.base_dir, path!("env-logs"));
+        assert_eq!(file.filter, "trace");
 
-                Ok(())
-            },
-        )
-    }
+        let options = from_pairs(&[(ENV_LOG_FILTER, "  ")])?;
+        let console = options
+            .console_output
+            .ok_or_else(|| anyhow!("console output should be enabled"))?;
 
-    #[test]
-    fn from_env_supports_disabled_outputs_and_rotation() -> Result<()> {
-        with_logger_env(
-            &[
-                (ENV_LOGGER_CONSOLE_ENABLED, "false"),
-                (ENV_LOGGER_FILE_ENABLED, "true"),
-                (ENV_LOGGER_FILE_BASE_DIR, "env-logs"),
-                (ENV_LOGGER_FILE_ROTATION_ENABLED, "false"),
-            ],
-            || {
-                let options = LoggerInitOptions::from_env()?;
-                let file = options
-                    .file_output
-                    .ok_or_else(|| anyhow!("file output should be enabled"))?;
+        assert_eq!(console.filter, DEFAULT_FILTER);
+        assert_eq!(console.stream, LoggerConsoleStream::Stdout);
+        assert!(options.file_output.is_none());
 
-                assert!(options.console_output.is_none());
-                assert_eq!(file.rotation, None);
-
-                Ok(())
-            },
-        )
+        Ok(())
     }
 
     #[test]
     fn from_env_rejects_invalid_values() {
-        let invalid_bool = with_logger_env(&[(ENV_LOGGER_CONSOLE_ENABLED, "maybe")], LoggerInitOptions::from_env);
-        assert!(invalid_bool.is_err());
-
-        let missing_file_dir = with_logger_env(&[(ENV_LOGGER_FILE_ENABLED, "true")], LoggerInitOptions::from_env);
-        assert!(missing_file_dir.is_err());
-
-        let zero_rotation = with_logger_env(
-            &[
-                (ENV_LOGGER_FILE_ENABLED, "true"),
-                (ENV_LOGGER_FILE_BASE_DIR, "env-logs"),
-                (ENV_LOGGER_FILE_ROTATION_MAX_BYTES, "0"),
-            ],
-            LoggerInitOptions::from_env,
-        );
-
-        assert!(zero_rotation.is_err());
-
-        let zero_channel_capacity = with_logger_env(&[(ENV_LOGGER_CHANNEL_CAPACITY, "0")], LoggerInitOptions::from_env);
-        assert!(zero_channel_capacity.is_err());
-
-        let invalid_queue_policy =
-            with_logger_env(&[(ENV_LOGGER_QUEUE_FULL_POLICY, "wait")], LoggerInitOptions::from_env);
-
-        assert!(invalid_queue_policy.is_err());
-    }
-
-    fn with_logger_env<T>(values: &[(&str, &str)], action: impl FnOnce() -> T) -> T {
-        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-
-        let _guard = ENV_LOCK
-            .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-
-        let keys = [
-            ENV_LOG_LEVEL,
-            ENV_LOGGER_CONSOLE_ENABLED,
-            ENV_LOGGER_CONSOLE_LEVEL,
-            ENV_LOGGER_CONSOLE_TARGET,
-            ENV_LOGGER_CONSOLE_ANSI,
-            ENV_LOGGER_FILE_ENABLED,
-            ENV_LOGGER_FILE_LEVEL,
-            ENV_LOGGER_FILE_BASE_DIR,
-            ENV_LOGGER_FILE_ROTATION_ENABLED,
-            ENV_LOGGER_FILE_ROTATION_MAX_BYTES,
-            ENV_LOGGER_FILE_ROTATION_BACKUP_COUNT,
-            ENV_LOGGER_CHANNEL_CAPACITY,
-            ENV_LOGGER_QUEUE_FULL_POLICY,
-        ];
-
-        let previous_values = keys.map(|key| (key, var(key).ok()));
-
-        for key in keys {
-            remove_logger_env_var(key);
-        }
-
-        for (key, value) in values {
-            set_logger_env_var(key, value);
-        }
-
-        let result = action();
-
-        for (key, value) in previous_values {
-            match value {
-                Some(value) => set_logger_env_var(key, &value),
-                None => remove_logger_env_var(key),
-            }
-        }
-
-        result
-    }
-
-    fn remove_logger_env_var(key: &str) {
-        // SAFETY: Tests serialize all logger-related environment mutations with ENV_LOCK and restore previous values before releasing it.
-        unsafe { remove_var(key) };
-    }
-
-    fn set_logger_env_var(key: &str, value: &str) {
-        // SAFETY: Tests serialize all logger-related environment mutations with ENV_LOCK and restore previous values before releasing it.
-        unsafe { set_var(key, value) };
+        assert!(from_pairs(&[(ENV_LOGGER_FILE_ENABLED, "true")]).is_err());
+        assert!(from_pairs(&[(ENV_LOGGER_CONSOLE_STREAM, "stdin")]).is_err());
+        assert!(from_pairs(&[(ENV_LOGGER_CONSOLE_ENABLED, "maybe")]).is_err());
+        assert!(from_pairs(&[(ENV_LOGGER_CHANNEL_CAPACITY, "-1")]).is_err());
+        assert!(from_pairs(&[(ENV_LOGGER_QUEUE_FULL_POLICY, "wait")]).is_err());
     }
 }

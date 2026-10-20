@@ -1,14 +1,25 @@
 use std::{
+    fs::{
+        File,
+        OpenOptions,
+    },
     io::{
-        Result as IoResult,
+        BufWriter,
         Write,
+        stderr,
         stdout,
     },
-    sync::mpsc::{
-        Receiver,
-        SyncSender,
-        TrySendError,
-        sync_channel,
+    sync::{
+        Arc,
+        atomic::{
+            AtomicU64,
+            Ordering,
+        },
+        mpsc::{
+            Receiver,
+            SyncSender,
+            sync_channel,
+        },
     },
     thread::{
         Builder,
@@ -20,44 +31,167 @@ use anyhow::{
     Context,
     Result,
     anyhow,
-    bail,
 };
-use tracing::Metadata;
-use tracing_subscriber::fmt::MakeWriter;
+use pathkit::{
+    Path,
+    SyncFsOps,
+};
+use rustc_hash::FxHashMap;
 
 use super::{
     options::{
-        LoggerFileOutputOptions,
+        LoggerConsoleStream,
         LoggerNonBlockingOptions,
-        LoggerQueueFullPolicy,
     },
-    target::{
-        DEFAULT_LOG_KEY,
-        TargetFileWriter,
+    queue::{
+        LoggerCommand,
+        QueueMakeWriter,
     },
 };
 
-// Enums
-#[derive(Debug)]
-enum LoggerCommand {
-    Flush(SyncSender<()>),
-    Shutdown(SyncSender<()>),
-    Write { bytes: Vec<u8>, key: String },
+// Constants/Statics
+const CONSOLE_BUFFER_CAPACITY: usize = 64 * 1024;
+const DEFAULT_LOG_KEY: &str = "_default";
+const FALLBACK_FILE_INDEX: usize = 0;
+const FALLBACK_LOG_KEY: &str = "_fallback";
+const FILE_BUFFER_CAPACITY: usize = 8 * 1024;
+
+// Traits
+pub(super) trait LogSink: Send + 'static {
+    fn flush(&mut self);
+
+    fn write(&mut self, target: &[u8], line: &[u8]);
 }
 
 // Structs
+pub(super) struct ConsoleSink {
+    writer: BufWriter<Box<dyn Write + Send>>,
+}
+
+impl LogSink for ConsoleSink {
+    fn flush(&mut self) {
+        let _ = self.writer.flush();
+    }
+
+    fn write(&mut self, _: &[u8], line: &[u8]) {
+        let _ = self.writer.write_all(line);
+    }
+}
+
+impl ConsoleSink {
+    pub(super) fn new(stream: LoggerConsoleStream) -> Self {
+        let writer: Box<dyn Write + Send> = match stream {
+            LoggerConsoleStream::Stdout => Box::new(stdout()),
+            LoggerConsoleStream::Stderr => Box::new(stderr()),
+        };
+
+        Self {
+            writer: BufWriter::with_capacity(CONSOLE_BUFFER_CAPACITY, writer),
+        }
+    }
+}
+
+/// Routes lines to `{base_dir}/{target key}.log`, falling back to `_fallback.log` when a target file
+/// cannot be opened. Owned by a single worker thread, so no locking is needed.
+pub(super) struct FileSink {
+    base_dir: Path,
+    dirty_indexes: Vec<usize>,
+    files: Vec<SinkFile>,
+    key_indexes: FxHashMap<String, usize>,
+    target_indexes: FxHashMap<Box<[u8]>, usize>,
+}
+
+impl LogSink for FileSink {
+    fn flush(&mut self) {
+        for index in self.dirty_indexes.drain(..) {
+            let file = &mut self.files[index];
+            file.dirty = false;
+            let _ = file.writer.flush();
+        }
+    }
+
+    fn write(&mut self, target: &[u8], line: &[u8]) {
+        let index = match self.target_indexes.get(target) {
+            Some(&index) => index,
+            None => self.resolve_target(target),
+        };
+
+        let file = &mut self.files[index];
+        let _ = file.writer.write_all(line);
+        if !file.dirty {
+            file.dirty = true;
+            self.dirty_indexes.push(index);
+        }
+    }
+}
+
+impl FileSink {
+    pub(super) fn new(base_dir: Path) -> Result<Self> {
+        base_dir.create_dir_all_sync()?;
+        let fallback = SinkFile::open(&(&base_dir / format!("{FALLBACK_LOG_KEY}.log")))?;
+
+        // A target named `_fallback` must share the fallback handle instead of opening the file twice.
+        let mut key_indexes = FxHashMap::default();
+        key_indexes.insert(FALLBACK_LOG_KEY.to_owned(), FALLBACK_FILE_INDEX);
+
+        Ok(Self {
+            base_dir,
+            dirty_indexes: Vec::new(),
+            files: vec![fallback],
+            key_indexes,
+            target_indexes: FxHashMap::default(),
+        })
+    }
+
+    // Private methods
+    /// Maps a target seen for the first time to a file index; failures are cached as the fallback file.
+    fn resolve_target(&mut self, target: &[u8]) -> usize {
+        let key = target_to_key(&String::from_utf8_lossy(target));
+        let index = match self.key_indexes.get(&key) {
+            Some(&index) => index,
+            None => match SinkFile::open(&(&self.base_dir / format!("{key}.log"))) {
+                Ok(file) => {
+                    self.files.push(file);
+                    let index = self.files.len() - 1;
+                    self.key_indexes.insert(key, index);
+                    index
+                },
+                Err(_) => FALLBACK_FILE_INDEX,
+            },
+        };
+
+        self.target_indexes.insert(target.into(), index);
+        index
+    }
+}
+
+struct SinkFile {
+    dirty: bool,
+    writer: BufWriter<File>,
+}
+
+impl SinkFile {
+    fn open(path: &Path) -> Result<Self> {
+        path.create_parent_dir_all_sync()?;
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
+
+        Ok(Self {
+            dirty: false,
+            writer: BufWriter::with_capacity(FILE_BUFFER_CAPACITY, file),
+        })
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct LoggerWorkerGuard {
+    dropped: Arc<AtomicU64>,
     handle: Option<JoinHandle<()>>,
     sender: SyncSender<LoggerCommand>,
 }
 
 impl LoggerWorkerGuard {
-    fn new(sender: SyncSender<LoggerCommand>, handle: JoinHandle<()>) -> Self {
-        Self {
-            handle: Some(handle),
-            sender,
-        }
+    pub(super) fn dropped_count(&self) -> u64 {
+        self.dropped.load(Ordering::Relaxed)
     }
 
     pub(super) fn flush(&self) -> Result<()> {
@@ -89,238 +223,106 @@ impl LoggerWorkerGuard {
     }
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct NonBlockingConsoleWriter {
-    queue: NonBlockingQueue,
-}
-
-impl<'a> MakeWriter<'a> for NonBlockingConsoleWriter {
-    type Writer = NonBlockingLogWriter;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        NonBlockingLogWriter::new(self.queue.clone(), String::new())
-    }
-}
-
-impl NonBlockingConsoleWriter {
-    pub(super) fn spawn(options: LoggerNonBlockingOptions) -> Result<(Self, LoggerWorkerGuard)> {
-        let (sender, receiver) = sync_channel(options.channel_capacity);
-        let handle = Builder::new()
-            .name("kikiutils-logger-console".to_owned())
-            .spawn(move || run_console_worker(&receiver))
-            .context("failed to spawn console logger worker")?;
-
-        Ok((
-            Self {
-                queue: NonBlockingQueue {
-                    full_policy: options.queue_full_policy,
-                    sender: sender.clone(),
-                },
-            },
-            LoggerWorkerGuard::new(sender, handle),
-        ))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct NonBlockingFileWriter {
-    queue: NonBlockingQueue,
-}
-
-impl<'a> MakeWriter<'a> for NonBlockingFileWriter {
-    type Writer = NonBlockingLogWriter;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        self.make_writer_for_key(DEFAULT_LOG_KEY)
-    }
-
-    fn make_writer_for(&'a self, meta: &Metadata<'_>) -> Self::Writer {
-        self.make_writer_for_key(TargetFileWriter::target_to_key(meta.target()))
-    }
-}
-
-impl NonBlockingFileWriter {
-    // Private methods
-    fn make_writer_for_key(&self, key: impl Into<String>) -> NonBlockingLogWriter {
-        NonBlockingLogWriter::new(self.queue.clone(), key.into())
-    }
-
-    // Public methods
-    pub(super) fn spawn(
-        file_options: &LoggerFileOutputOptions,
-        worker_options: LoggerNonBlockingOptions,
-    ) -> Result<(Self, LoggerWorkerGuard)> {
-        let writer = TargetFileWriter::new(file_options).context("failed to initialize file log writer")?;
-        let (sender, receiver) = sync_channel(worker_options.channel_capacity);
-        let handle = Builder::new()
-            .name("kikiutils-logger-file".to_owned())
-            .spawn(move || run_file_worker(&receiver, &writer))
-            .context("failed to spawn file logger worker")?;
-
-        Ok((
-            Self {
-                queue: NonBlockingQueue {
-                    full_policy: worker_options.queue_full_policy,
-                    sender: sender.clone(),
-                },
-            },
-            LoggerWorkerGuard::new(sender, handle),
-        ))
-    }
-}
-
-#[derive(Debug)]
-pub(super) struct NonBlockingLogWriter {
-    key: String,
-    queue: NonBlockingQueue,
-}
-
-impl Write for NonBlockingLogWriter {
-    fn flush(&mut self) -> IoResult<()> {
-        Ok(())
-    }
-
-    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
-        if buf.is_empty() {
-            return Ok(0);
-        }
-
-        let command = LoggerCommand::Write {
-            bytes: buf.to_vec(),
-            key: self.key.clone(),
-        };
-
-        match self.queue.full_policy {
-            LoggerQueueFullPolicy::Block => {
-                let _ = self.queue.sender.send(command);
-            },
-            LoggerQueueFullPolicy::DropNewest => match self.queue.sender.try_send(command) {
-                Ok(()) | Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {},
-            },
-        }
-
-        Ok(buf.len())
-    }
-}
-
-impl NonBlockingLogWriter {
-    fn new(queue: NonBlockingQueue, key: String) -> Self {
-        Self { key, queue }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct NonBlockingQueue {
-    full_policy: LoggerQueueFullPolicy,
-    sender: SyncSender<LoggerCommand>,
-}
-
 // Functions
-pub(super) fn validate_worker_options(options: LoggerNonBlockingOptions) -> Result<()> {
-    if options.channel_capacity == 0 {
-        bail!("logger channel capacity must be greater than 0");
-    }
+pub(super) fn spawn_worker(
+    name: &str,
+    sink: impl LogSink,
+    options: LoggerNonBlockingOptions,
+    route_by_target: bool,
+) -> Result<(QueueMakeWriter, LoggerWorkerGuard)> {
+    let (sender, receiver) = sync_channel(options.channel_capacity);
+    let handle = Builder::new()
+        .name(name.to_owned())
+        .spawn(move || run_worker(&receiver, sink))
+        .with_context(|| format!("failed to spawn {name} worker"))?;
 
-    Ok(())
+    let dropped = Arc::new(AtomicU64::new(0));
+    Ok((
+        QueueMakeWriter::new(
+            sender.clone(),
+            options.queue_full_policy,
+            route_by_target,
+            Arc::clone(&dropped),
+        ),
+        LoggerWorkerGuard {
+            dropped,
+            handle: Some(handle),
+            sender,
+        },
+    ))
 }
 
-fn run_console_worker(receiver: &Receiver<LoggerCommand>) {
-    let mut writer = stdout();
+/// Drains every queued command before flushing, so bursts are written in batches while an idle
+/// queue still flushes each line immediately. Sinks flush their buffers on drop when all senders
+/// disconnect.
+fn run_worker(receiver: &Receiver<LoggerCommand>, mut sink: impl LogSink) {
+    while let Ok(mut command) = receiver.recv() {
+        loop {
+            match command {
+                LoggerCommand::Flush(ack_sender) => {
+                    sink.flush();
+                    let _ = ack_sender.send(());
+                },
+                LoggerCommand::Shutdown(ack_sender) => {
+                    sink.flush();
+                    let _ = ack_sender.send(());
+                    return;
+                },
+                LoggerCommand::Write { bytes, target_len } => {
+                    let (target, line) = bytes.split_at(target_len);
+                    sink.write(target, line);
+                },
+            }
 
-    while let Ok(command) = receiver.recv() {
-        match command {
-            LoggerCommand::Flush(ack_sender) => {
-                let _ = writer.flush();
-                let _ = ack_sender.send(());
-            },
-            LoggerCommand::Shutdown(ack_sender) => {
-                let _ = writer.flush();
-                let _ = ack_sender.send(());
+            let Ok(next_command) = receiver.try_recv() else {
                 break;
-            },
-            LoggerCommand::Write { bytes, .. } => {
-                let _ = writer.write_all(&bytes);
-            },
+            };
+
+            command = next_command;
         }
+
+        sink.flush();
     }
 }
 
-fn run_file_worker(receiver: &Receiver<LoggerCommand>, writer: &TargetFileWriter) {
-    while let Ok(command) = receiver.recv() {
-        match command {
-            LoggerCommand::Flush(ack_sender) => {
-                let _ = writer.flush_all();
-                let _ = ack_sender.send(());
-            },
-            LoggerCommand::Shutdown(ack_sender) => {
-                let _ = writer.flush_all();
-                let _ = ack_sender.send(());
-                break;
-            },
-            LoggerCommand::Write { bytes, key } => {
-                let mut file = writer.resolve_writer(&key);
-                let _ = file.write_all(&bytes);
-            },
-        }
+fn sanitize_target_segment(value: &str) -> String {
+    value
+        .chars()
+        .map(|value| {
+            if value.is_ascii_alphanumeric() || matches!(value, '-' | '_' | '.') {
+                value
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('.')
+        .to_owned()
+}
+
+fn target_to_key(target: &str) -> String {
+    let key = target
+        .split("::")
+        .map(sanitize_target_segment)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join("/");
+
+    if key.is_empty() {
+        DEFAULT_LOG_KEY.to_owned()
+    } else {
+        key
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-
     use super::*;
 
     #[test]
-    fn non_blocking_writer_reports_success_when_queue_accepts_message() -> Result<()> {
-        let (sender, receiver) = sync_channel(1);
-        let queue = NonBlockingQueue {
-            full_policy: LoggerQueueFullPolicy::DropNewest,
-            sender,
-        };
-
-        let mut writer = NonBlockingLogWriter::new(queue, "target".to_owned());
-
-        assert_eq!(writer.write(b"hello")?, 5);
-
-        match receiver.recv()? {
-            LoggerCommand::Write { bytes, key } => {
-                assert_eq!(bytes, b"hello");
-                assert_eq!(key, "target");
-            },
-            LoggerCommand::Flush(_) | LoggerCommand::Shutdown(_) => panic!("expected write command"),
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn drop_newest_policy_does_not_block_or_fail_when_queue_is_full() -> Result<()> {
-        let (sender, _receiver) = sync_channel(1);
-        sender.send(LoggerCommand::Write {
-            bytes: b"existing".to_vec(),
-            key: String::new(),
-        })?;
-
-        let queue = NonBlockingQueue {
-            full_policy: LoggerQueueFullPolicy::DropNewest,
-            sender,
-        };
-
-        let mut writer = NonBlockingLogWriter::new(queue, String::new());
-
-        assert_eq!(writer.write(b"dropped")?, 7);
-
-        Ok(())
-    }
-
-    #[test]
-    fn zero_channel_capacity_is_rejected() {
-        let result = validate_worker_options(LoggerNonBlockingOptions {
-            channel_capacity: 0,
-            queue_full_policy: LoggerQueueFullPolicy::DropNewest,
-        });
-
-        assert!(result.is_err());
+    fn target_to_key_sanitizes_and_preserves_module_hierarchy() {
+        assert_eq!(target_to_key("app::endpoint::status"), "app/endpoint/status");
+        assert_eq!(target_to_key("../bad::target?"), "_bad/target_");
+        assert_eq!(target_to_key("...::"), DEFAULT_LOG_KEY);
     }
 }

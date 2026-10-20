@@ -1,42 +1,59 @@
+use std::fmt::Result as FmtResult;
+
 use anyhow::{
     Context,
+    Ok,
     Result,
-};
-use time::{
-    UtcOffset,
-    format_description::FormatItem,
-    macros::format_description,
+    bail,
 };
 use tracing_subscriber::{
+    EnvFilter,
     Layer,
     Registry,
+    field::RecordFields,
     fmt::{
+        FormatFields,
+        format::{
+            DefaultFields,
+            Writer,
+        },
         layer,
-        time::OffsetTime,
     },
     layer::SubscriberExt,
     registry,
     util::SubscriberInitExt,
 };
 
-mod file;
 pub mod options;
-mod target;
+mod queue;
+mod timer;
 mod worker;
 
 use self::{
     options::LoggerInitOptions,
+    timer::LoggerTimer,
     worker::{
+        ConsoleSink,
+        FileSink,
         LoggerWorkerGuard,
-        NonBlockingConsoleWriter,
-        NonBlockingFileWriter,
-        validate_worker_options,
+        spawn_worker,
     },
 };
 
 type BoxedLayer = Box<dyn Layer<Registry> + Send + Sync + 'static>;
 
 // Structs
+
+/// [`DefaultFields`] under a distinct type, so the file layer caches its own ANSI-free span fields
+/// instead of reusing the ones formatted by the console layer.
+#[derive(Debug, Default)]
+struct FileFields(DefaultFields);
+
+impl<'writer> FormatFields<'writer> for FileFields {
+    fn format_fields<R: RecordFields>(&self, writer: Writer<'writer>, fields: R) -> FmtResult {
+        self.0.format_fields(writer, fields)
+    }
+}
 
 /// Keeps non-blocking logger workers alive and provides explicit flush/shutdown controls.
 ///
@@ -48,12 +65,21 @@ pub struct LoggerGuard {
     workers: Vec<LoggerWorkerGuard>,
 }
 
+impl Drop for LoggerGuard {
+    fn drop(&mut self) {
+        for worker in &mut self.workers {
+            let _ = worker.shutdown();
+        }
+    }
+}
+
 impl LoggerGuard {
-    fn new(workers: Vec<LoggerWorkerGuard>) -> Self {
-        Self { workers }
+    // Public methods
+    /// Returns how many log events were discarded because a queue was full or its worker had stopped.
+    pub fn dropped_count(&self) -> u64 {
+        self.workers.iter().map(LoggerWorkerGuard::dropped_count).sum()
     }
 
-    // Public methods
     /// Waits until all log messages queued before this call have been written by the background workers.
     pub fn flush(&self) -> Result<()> {
         for worker in &self.workers {
@@ -73,17 +99,13 @@ impl LoggerGuard {
     }
 }
 
-impl Drop for LoggerGuard {
-    fn drop(&mut self) {
-        for worker in &mut self.workers {
-            let _ = worker.shutdown();
-        }
-    }
-}
-
 // Functions
 
 /// Initializes the global tracing subscriber with non-blocking logger workers.
+///
+/// Console output goes to stdout or stderr. File output is split by event target: `a::b::c` is
+/// written to `{base_dir}/a/b/c.log`, an empty target to `_default.log`, and targets whose file
+/// cannot be opened to `_fallback.log`.
 ///
 /// The returned [`LoggerGuard`] must be kept alive for logging to continue. If it is dropped,
 /// queued messages are flushed and the background workers are shut down.
@@ -104,54 +126,77 @@ impl Drop for LoggerGuard {
 /// # }
 /// ```
 pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
-    validate_worker_options(options.non_blocking)?;
-
-    let timer = make_timer();
-    let mut layers = Vec::<BoxedLayer>::new();
-    let mut workers = Vec::new();
-
-    if let Some(console_options) = options.console_output {
-        let (console_writer, console_guard) = NonBlockingConsoleWriter::spawn(options.non_blocking)?;
-        workers.push(console_guard);
-        layers.push(
-            layer()
-                .with_timer(timer.clone())
-                .with_writer(console_writer)
-                .with_ansi(console_options.ansi_enabled)
-                .with_target(console_options.include_target)
-                .with_filter(console_options.level.as_level_filter())
-                .boxed(),
-        );
+    if options.non_blocking.channel_capacity == 0 {
+        bail!("logger channel capacity must be greater than 0");
     }
 
-    if let Some(file_options) = options.file_output {
-        let level = file_options.level;
-        let (file_writer, file_guard) = NonBlockingFileWriter::spawn(&file_options, options.non_blocking)?;
-        workers.push(file_guard);
+    // Parse every filter before spawning workers so invalid directives fail without side effects.
+    let console = options
+        .console_output
+        .map(|console_options| {
+            let filter = parse_filter(&console_options.filter).context("invalid console log filter")?;
+            Ok((console_options, filter))
+        })
+        .transpose()?;
+
+    let file = options
+        .file_output
+        .map(|file_options| {
+            let filter = parse_filter(&file_options.filter).context("invalid file log filter")?;
+            Ok((file_options, filter))
+        })
+        .transpose()?;
+
+    let timer = LoggerTimer::new();
+    let mut layers = Vec::<BoxedLayer>::new();
+    let mut logger_guard = LoggerGuard { workers: Vec::new() };
+
+    if let Some((console_options, filter)) = console {
+        let (writer, worker) = spawn_worker(
+            "kikiutils-logger-console",
+            ConsoleSink::new(console_options.stream),
+            options.non_blocking,
+            false,
+        )?;
+
+        logger_guard.workers.push(worker);
         layers.push(
             layer()
                 .with_timer(timer)
-                .with_writer(file_writer)
-                .with_ansi(false)
-                .with_target(true)
-                .with_filter(level.as_level_filter())
+                .with_writer(writer)
+                .with_ansi(console_options.ansi_enabled)
+                .with_target(console_options.include_target)
+                .with_filter(filter)
                 .boxed(),
         );
     }
 
-    let logger_guard = LoggerGuard::new(workers);
-    if let Err(error) = registry().with(layers).try_init() {
-        drop(logger_guard);
-        return Err(error).context("failed to initialize tracing subscriber");
+    if let Some((file_options, filter)) = file {
+        let sink = FileSink::new(file_options.base_dir).context("failed to initialize file log writer")?;
+        let (writer, worker) = spawn_worker("kikiutils-logger-file", sink, options.non_blocking, true)?;
+        logger_guard.workers.push(worker);
+        layers.push(
+            layer()
+                .fmt_fields(FileFields::default())
+                .with_timer(timer)
+                .with_writer(writer)
+                .with_ansi(false)
+                .with_target(true)
+                .with_filter(filter)
+                .boxed(),
+        );
     }
+
+    registry()
+        .with(layers)
+        .try_init()
+        .context("failed to initialize tracing subscriber")?;
 
     Ok(logger_guard)
 }
 
-fn make_timer() -> OffsetTime<Vec<FormatItem<'static>>> {
-    let local_offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
-    OffsetTime::new(
-        local_offset,
-        format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:6]").to_vec(),
-    )
+fn parse_filter(directives: &str) -> Result<EnvFilter> {
+    EnvFilter::builder()
+        .parse(directives)
+        .with_context(|| format!("failed to parse filter directives: {directives}"))
 }

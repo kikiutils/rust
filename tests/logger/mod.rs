@@ -11,10 +11,9 @@ use kikiutils::logger::{
     init_logger,
     options::{
         LoggerConsoleOutputOptions,
+        LoggerConsoleStream,
         LoggerFileOutputOptions,
-        LoggerFileRotationOptions,
         LoggerInitOptions,
-        LoggerLogLevel,
         LoggerNonBlockingOptions,
         LoggerQueueFullPolicy,
     },
@@ -27,35 +26,25 @@ use pathkit::{
 use tracing::{
     Level,
     event,
+    span,
 };
 
 #[test]
-fn init_logger_writes_console_and_rotating_target_files() -> Result<()> {
+fn init_logger_writes_filtered_events_to_target_files() -> Result<()> {
     let log_dir = unique_temp_dir();
-    let default_console_options = LoggerConsoleOutputOptions::default();
-    let console_options = LoggerConsoleOutputOptions {
-        ansi_enabled: false,
-        include_target: true,
-        level: LoggerLogLevel::Off,
-    };
-
-    let file_options = LoggerFileOutputOptions {
-        base_dir: log_dir.clone(),
-        level: LoggerLogLevel::Trace,
-        rotation: Some(LoggerFileRotationOptions {
-            backup_file_count: 1,
-            max_bytes_per_file: 1,
-        }),
-    };
-
-    assert!(default_console_options.ansi_enabled);
-    assert!(default_console_options.include_target);
-    assert_eq!(default_console_options.level, LoggerLogLevel::Info);
-    assert!(LoggerInitOptions::disabled().console_output.is_none());
-
     let logger_guard = init_logger(LoggerInitOptions {
-        console_output: Some(console_options),
-        file_output: Some(file_options),
+        console_output: Some(LoggerConsoleOutputOptions {
+            // Only the span target is enabled, so the console layer formats span fields with ANSI
+            // but prints no events.
+            ansi_enabled: true,
+            filter: "logger_integration::span=info".to_owned(),
+            include_target: true,
+            stream: LoggerConsoleStream::Stderr,
+        }),
+        file_output: Some(LoggerFileOutputOptions {
+            base_dir: log_dir.clone(),
+            filter: "info,logger_integration::muted=off".to_owned(),
+        }),
         non_blocking: LoggerNonBlockingOptions {
             channel_capacity: 128,
             queue_full_policy: LoggerQueueFullPolicy::Block,
@@ -63,24 +52,48 @@ fn init_logger_writes_console_and_rotating_target_files() -> Result<()> {
     })?;
 
     event!(target: "logger_integration::bad/target?", Level::INFO, "first message");
-    event!(target: "logger_integration::bad/target?", Level::INFO, "second message");
-    event!(target: "logger_integration::bad/target?", Level::INFO, "third message");
+    event!(target: "logger_integration::bad/target?", Level::DEBUG, "filtered message");
+    event!(target: "logger_integration::bad/target?", Level::WARN, "second message");
+    event!(target: "logger_integration::muted", Level::ERROR, "muted message");
+    span!(target: "logger_integration::span", Level::INFO, "req", id = 1).in_scope(|| {
+        event!(target: "logger_integration::bad/target?", Level::INFO, "span message");
+    });
 
     logger_guard.flush()?;
 
-    let target_log = &log_dir / "logger_integration" / "bad_target_.log";
-    let rotated_target_log = target_log.with_added_extension("1");
+    let content = (&log_dir / "logger_integration" / "bad_target_.log").read_to_string_sync()?;
+    let lines = content.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 3, "unexpected log content: {content}");
+    assert!(lines.iter().all(|line| has_timestamp_prefix(line)), "{content}");
+    assert!(lines[0].ends_with(" INFO logger_integration::bad/target?: first message"));
+    assert!(lines[1].ends_with(" WARN logger_integration::bad/target?: second message"));
+    assert!(lines[2].ends_with(" INFO req{id=1}: logger_integration::bad/target?: span message"));
+    assert!(
+        !content.contains('\x1b'),
+        "file log must not contain ANSI escapes: {content:?}"
+    );
 
-    assert!(target_log.exists_sync()?);
-    assert!(rotated_target_log.exists_sync()?);
-    assert!(target_log.read_to_string_sync()?.contains("third message"));
-    assert!(rotated_target_log.read_to_string_sync()?.contains("second message"));
-    assert!(!target_log.with_added_extension("2").exists_sync()?);
+    assert!(!(&log_dir / "logger_integration" / "muted.log").exists_sync()?);
+    assert!((&log_dir / "_fallback.log").exists_sync()?);
+    assert_eq!(logger_guard.dropped_count(), 0);
 
     logger_guard.shutdown()?;
     log_dir.remove_dir_all_sync()?;
 
     Ok(())
+}
+
+/// Matches `YYYY-MM-DD HH:MM:SS.ffffff`.
+fn has_timestamp_prefix(line: &str) -> bool {
+    let pattern = b"0000-00-00 00:00:00.000000";
+    line.len() > pattern.len()
+        && line.bytes().zip(pattern).all(|(byte, expected)| {
+            if *expected == b'0' {
+                byte.is_ascii_digit()
+            } else {
+                byte == *expected
+            }
+        })
 }
 
 fn unique_temp_dir() -> Path {
