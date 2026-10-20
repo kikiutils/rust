@@ -31,6 +31,7 @@ use kikiutils::{
 };
 use tokio::{
     sync::Mutex,
+    task::yield_now,
     time::timeout,
 };
 
@@ -41,8 +42,10 @@ const CANCEL_AFTER: Duration = Duration::from_millis(20);
 struct TestService {
     cleanup_called: AtomicBool,
     cleanup_should_fail: AtomicBool,
+    cleanup_saw_task_exited: AtomicBool,
     lifecycle_lock: Mutex<()>,
     state: AtomicEnumCell<ServiceState>,
+    task_exited: Arc<AtomicBool>,
     task_manager: TaskManager,
 }
 
@@ -50,6 +53,9 @@ struct TestService {
 impl AsyncServiceLifecycleHooks for TestService {
     async fn cleanup_resources(&self) -> Result<()> {
         self.cleanup_called.store(true, Ordering::SeqCst);
+        self.cleanup_saw_task_exited
+            .store(self.task_exited.load(Ordering::SeqCst), Ordering::SeqCst);
+
         if self.cleanup_should_fail.load(Ordering::SeqCst) {
             Err(anyhow!("cleanup failed"))
         } else {
@@ -63,8 +69,10 @@ impl TestService {
         Self {
             cleanup_called: AtomicBool::new(false),
             cleanup_should_fail: AtomicBool::new(false),
+            cleanup_saw_task_exited: AtomicBool::new(false),
             lifecycle_lock: Mutex::new(()),
             state: AtomicEnumCell::new(state),
+            task_exited: Arc::new(AtomicBool::new(false)),
             task_manager: TaskManager::new(),
         }
     }
@@ -167,6 +175,22 @@ async fn execute_stop_cancels_tasks_runs_cleanup_and_marks_service_stopped() {
     assert!(service.cleanup_called.load(Ordering::SeqCst));
     assert_eq!(service.state.get(), ServiceState::Stopped);
     assert!(service.task_manager.is_empty());
+}
+
+#[tokio::test]
+async fn execute_stop_runs_cleanup_only_after_tasks_exit() {
+    let service = TestService::new(ServiceState::Running);
+    let task_exited = Arc::clone(&service.task_exited);
+    service.task_manager.spawn_with_token(async move |cancel_token| {
+        cancel_token.cancelled().await;
+        // Simulate a task that needs another poll to finish shutting down.
+        yield_now().await;
+        task_exited.store(true, Ordering::SeqCst);
+    });
+
+    service.execute_stop().await.unwrap();
+
+    assert!(service.cleanup_saw_task_exited.load(Ordering::SeqCst));
 }
 
 #[tokio::test]

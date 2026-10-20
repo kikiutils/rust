@@ -5,10 +5,7 @@ use anyhow::{
     bail,
 };
 use async_trait::async_trait;
-use tokio::{
-    join,
-    sync::Mutex,
-};
+use tokio::sync::Mutex;
 
 use super::state::ServiceState;
 use crate::{
@@ -44,7 +41,7 @@ pub trait AsyncServiceLifecycle: AsyncServiceLifecycleHooks + Send + Sync {
                 },
                 Err(start_error) => {
                     // Preserve the startup error; cleanup failure is represented by the resulting state.
-                    let _ = cleanup_resources_and_join_tasks_and_set_state(self).await;
+                    let _ = join_tasks_then_cleanup_and_set_state(self).await;
                     Err(start_error)
                 },
             };
@@ -66,7 +63,7 @@ pub trait AsyncServiceLifecycle: AsyncServiceLifecycleHooks + Send + Sync {
             }
 
             let cancel_guard = CleanupFailedOnCancel::new(self.state());
-            let result = cleanup_resources_and_join_tasks_and_set_state(self).await;
+            let result = join_tasks_then_cleanup_and_set_state(self).await;
             cancel_guard.disarm();
             result
         }
@@ -75,6 +72,10 @@ pub trait AsyncServiceLifecycle: AsyncServiceLifecycleHooks + Send + Sync {
 
 #[async_trait]
 pub trait AsyncServiceLifecycleHooks: Send + Sync {
+    /// Releases the service's resources when it stops or fails to start.
+    ///
+    /// Runs only after every managed task has been cancelled and has exited, so tasks must exit on
+    /// cancellation by themselves rather than rely on this cleanup to unblock them.
     async fn cleanup_resources(&self) -> Result<()>;
 }
 
@@ -108,9 +109,13 @@ impl<'a> CleanupFailedOnCancel<'a> {
 }
 
 // Functions
-async fn cleanup_resources_and_join_tasks_and_set_state<T: AsyncServiceLifecycle + ?Sized>(service: &T) -> Result<()> {
+
+/// Cancels managed tasks and waits for them to exit before cleaning up, so tasks never observe
+/// resources that are already being torn down.
+async fn join_tasks_then_cleanup_and_set_state<T: AsyncServiceLifecycle + ?Sized>(service: &T) -> Result<()> {
     service.task_manager().cancel_existing();
-    let (cleanup_result, ()) = join!(service.cleanup_resources(), service.task_manager().join_existing());
+    service.task_manager().join_existing().await;
+    let cleanup_result = service.cleanup_resources().await;
     let cleanup_state = match cleanup_result {
         Ok(()) => ServiceState::Stopped,
         Err(_) => ServiceState::CleanupFailed,

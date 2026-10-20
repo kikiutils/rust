@@ -24,6 +24,7 @@ const ENV_LOGGER_QUEUE_FULL_POLICY: &str = "LOGGER_QUEUE_FULL_POLICY";
 
 // Enums
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum LoggerConsoleStream {
     #[default]
     Stdout,
@@ -31,6 +32,7 @@ pub enum LoggerConsoleStream {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum LoggerQueueFullPolicy {
     Block,
     #[default]
