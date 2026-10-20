@@ -1,5 +1,46 @@
 # Changelog
 
+## v0.13.0
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.12.2...v0.13.0)
+
+### 🚀 Enhancements
+
+- Add Dylint setup and unified code-fix scripts ([e340201](https://github.com/kikiutils/rust/commit/e340201))
+- **scripts:** Add Windows MSVC cross-target fix tooling ([95f8aaf](https://github.com/kikiutils/rust/commit/95f8aaf))
+- **logger:** ⚠️  Make option structs non-exhaustive and add builder methods ([0f01aed](https://github.com/kikiutils/rust/commit/0f01aed))
+
+### 🩹 Fixes
+
+- **service:** Mark lifecycle as cleanup-failed when start or stop is cancelled ([f892c2e](https://github.com/kikiutils/rust/commit/f892c2e))
+
+### 💅 Refactors
+
+- **logger:** ⚠️  Rewrite logger for high-throughput non-blocking output ([71cca6f](https://github.com/kikiutils/rust/commit/71cca6f))
+- **types:** Re-export FxHashMap and FxHashSet from rustc-hash ([4637b1f](https://github.com/kikiutils/rust/commit/4637b1f))
+- **signal:** Simplify shutdown signal wait and cover Windows console events ([bd09638](https://github.com/kikiutils/rust/commit/bd09638))
+- **task:** ⚠️  Remove registration lock and skip the calling task in existing-task operations ([2d83c01](https://github.com/kikiutils/rust/commit/2d83c01))
+- ⚠️  Tighten feature deps, mark logger enums non-exhaustive and order service cleanup ([6c3b998](https://github.com/kikiutils/rust/commit/6c3b998))
+
+### 🏡 Chore
+
+- **lints:** Enforce cloning and test module conventions ([8d1aae7](https://github.com/kikiutils/rust/commit/8d1aae7))
+- Lint and format code ([082f2ad](https://github.com/kikiutils/rust/commit/082f2ad))
+- **dylint:** Track rules from the main branch ([f21c004](https://github.com/kikiutils/rust/commit/f21c004))
+- Update mordant rules ([86817bf](https://github.com/kikiutils/rust/commit/86817bf))
+- Lint code ([b1636af](https://github.com/kikiutils/rust/commit/b1636af))
+
+#### ⚠️ Breaking Changes
+
+- **logger:** ⚠️  Make option structs non-exhaustive and add builder methods ([0f01aed](https://github.com/kikiutils/rust/commit/0f01aed))
+- **logger:** ⚠️  Rewrite logger for high-throughput non-blocking output ([71cca6f](https://github.com/kikiutils/rust/commit/71cca6f))
+- **task:** ⚠️  Remove registration lock and skip the calling task in existing-task operations ([2d83c01](https://github.com/kikiutils/rust/commit/2d83c01))
+- ⚠️  Tighten feature deps, mark logger enums non-exhaustive and order service cleanup ([6c3b998](https://github.com/kikiutils/rust/commit/6c3b998))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.12.2
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.12.1...v0.12.2)
