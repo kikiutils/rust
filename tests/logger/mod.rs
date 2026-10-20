@@ -32,24 +32,24 @@ use tracing::{
 #[test]
 fn init_logger_writes_filtered_events_to_target_files() -> Result<()> {
     let log_dir = unique_temp_dir();
-    let logger_guard = init_logger(LoggerInitOptions {
-        console_output: Some(LoggerConsoleOutputOptions {
-            // Only the span target is enabled, so the console layer formats span fields with ANSI
-            // but prints no events.
-            ansi_enabled: true,
-            filter: "logger_integration::span=info".to_owned(),
-            include_target: true,
-            stream: LoggerConsoleStream::Stderr,
-        }),
-        file_output: Some(LoggerFileOutputOptions {
-            base_dir: log_dir.clone(),
-            filter: "info,logger_integration::muted=off".to_owned(),
-        }),
-        non_blocking: LoggerNonBlockingOptions {
-            channel_capacity: 128,
-            queue_full_policy: LoggerQueueFullPolicy::Block,
-        },
-    })?;
+    // Only the span target is enabled on the console, so the console layer formats span fields with
+    // ANSI but prints no events.
+    let logger_guard = init_logger(
+        LoggerInitOptions::default()
+            .with_console_output(
+                LoggerConsoleOutputOptions::default()
+                    .with_filter("logger_integration::span=info")
+                    .with_stream(LoggerConsoleStream::Stderr),
+            )
+            .with_file_output(
+                LoggerFileOutputOptions::new(log_dir.clone()).with_filter("info,logger_integration::muted=off"),
+            )
+            .with_non_blocking(
+                LoggerNonBlockingOptions::default()
+                    .with_channel_capacity(128)
+                    .with_queue_full_policy(LoggerQueueFullPolicy::Block),
+            ),
+    )?;
 
     event!(target: "logger_integration::bad/target?", Level::INFO, "first message");
     event!(target: "logger_integration::bad/target?", Level::DEBUG, "filtered message");

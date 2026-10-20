@@ -38,7 +38,11 @@ pub enum LoggerQueueFullPolicy {
 }
 
 // Structs
+
+// Option structs are `#[non_exhaustive]` so fields can be added without breaking callers. Outside this
+// crate, start from `Default`/`new` and chain the `with_*` methods or assign the public fields.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct LoggerConsoleOutputOptions {
     pub ansi_enabled: bool,
     /// [`EnvFilter`](tracing_subscriber::EnvFilter) directives, e.g. `info` or `info,hyper=warn`.
@@ -58,7 +62,35 @@ impl Default for LoggerConsoleOutputOptions {
     }
 }
 
+impl LoggerConsoleOutputOptions {
+    // Public methods
+    #[must_use]
+    pub fn with_ansi_enabled(mut self, ansi_enabled: bool) -> Self {
+        self.ansi_enabled = ansi_enabled;
+        self
+    }
+
+    #[must_use]
+    pub fn with_filter(mut self, filter: impl Into<String>) -> Self {
+        self.filter = filter.into();
+        self
+    }
+
+    #[must_use]
+    pub fn with_include_target(mut self, include_target: bool) -> Self {
+        self.include_target = include_target;
+        self
+    }
+
+    #[must_use]
+    pub fn with_stream(mut self, stream: LoggerConsoleStream) -> Self {
+        self.stream = stream;
+        self
+    }
+}
+
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct LoggerFileOutputOptions {
     pub base_dir: Path,
     /// [`EnvFilter`](tracing_subscriber::EnvFilter) directives, e.g. `info` or `info,hyper=warn`.
@@ -72,9 +104,17 @@ impl LoggerFileOutputOptions {
             filter: DEFAULT_FILTER.to_owned(),
         }
     }
+
+    // Public methods
+    #[must_use]
+    pub fn with_filter(mut self, filter: impl Into<String>) -> Self {
+        self.filter = filter.into();
+        self
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct LoggerNonBlockingOptions {
     pub channel_capacity: usize,
     pub queue_full_policy: LoggerQueueFullPolicy,
@@ -89,7 +129,23 @@ impl Default for LoggerNonBlockingOptions {
     }
 }
 
+impl LoggerNonBlockingOptions {
+    // Public methods
+    #[must_use]
+    pub fn with_channel_capacity(mut self, channel_capacity: usize) -> Self {
+        self.channel_capacity = channel_capacity;
+        self
+    }
+
+    #[must_use]
+    pub fn with_queue_full_policy(mut self, queue_full_policy: LoggerQueueFullPolicy) -> Self {
+        self.queue_full_policy = queue_full_policy;
+        self
+    }
+}
+
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct LoggerInitOptions {
     pub console_output: Option<LoggerConsoleOutputOptions>,
     pub file_output: Option<LoggerFileOutputOptions>,
@@ -114,6 +170,36 @@ impl LoggerInitOptions {
             file_output: None,
             non_blocking: LoggerNonBlockingOptions::default(),
         }
+    }
+
+    #[must_use]
+    pub fn with_console_output(mut self, console_output: LoggerConsoleOutputOptions) -> Self {
+        self.console_output = Some(console_output);
+        self
+    }
+
+    #[must_use]
+    pub fn with_file_output(mut self, file_output: LoggerFileOutputOptions) -> Self {
+        self.file_output = Some(file_output);
+        self
+    }
+
+    #[must_use]
+    pub fn with_non_blocking(mut self, non_blocking: LoggerNonBlockingOptions) -> Self {
+        self.non_blocking = non_blocking;
+        self
+    }
+
+    #[must_use]
+    pub fn without_console_output(mut self) -> Self {
+        self.console_output = None;
+        self
+    }
+
+    #[must_use]
+    pub fn without_file_output(mut self) -> Self {
+        self.file_output = None;
+        self
     }
 
     /// Builds logger initialization options from environment variables.
