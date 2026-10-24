@@ -203,12 +203,12 @@ task = [
 [dependencies]
 anyhow = { version = "1.0.104", optional = true }
 async-trait = { version = "0.1.92", optional = true }
-dashmap = { version = "6.2.0", optional = true }
+dashmap = { version = "6.2.1", optional = true }
 num_enum = { version = "0.7.6", optional = true }
-pathkit = { version = "2.0.0", optional = true }
-rustc-hash = { version = "2.1.0", optional = true }
+pathkit = { version = "3.0.0", optional = true }
+rustc-hash = { version = "2.1.3", optional = true }
 time = { version = "0.3.55", features = ["formatting", "local-offset", "macros"], optional = true }
-tokio = { version = "1.53.0", features = ["macros", "rt", "signal", "sync"], optional = true }
+tokio = { version = "1.54.1", features = ["macros", "rt", "signal", "sync"], optional = true }
 tokio-util = { version = "0.7.20", optional = true }
 tracing = { version = "0.1.44", optional = true }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"], optional = true }
@@ -334,7 +334,7 @@ tikv-jemallocator = { version = "0.7.0", features = ["background_threads_runtime
 # Test/example/bench-only dependencies.
 [dev-dependencies]
 criterion = { version = "0.8.2", features = ["async_tokio"] }
-tokio = { version = "1.53.0", features = ["rt-multi-thread", "time"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "time"] }
 
 # -----------------------------------------------------------------------------
 # Target-specific development dependencies
