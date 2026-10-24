@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.13.1
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.13.0...v0.13.1)
+
+### 🩹 Fixes
+
+- Include toolchain libraries in fix script search path ([8b3e0d8](https://github.com/kikiutils/rust/commit/8b3e0d8))
+- Include toolchain libraries in Windows MSVC environment ([f53a2c1](https://github.com/kikiutils/rust/commit/f53a2c1))
+
+### 🏡 Chore
+
+- Update config and toolchain version ([8e778dd](https://github.com/kikiutils/rust/commit/8e778dd))
+- Update toolchain version ([919df37](https://github.com/kikiutils/rust/commit/919df37))
+- Upgrade deps ([74147c0](https://github.com/kikiutils/rust/commit/74147c0))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.13.0
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.12.2...v0.13.0)
