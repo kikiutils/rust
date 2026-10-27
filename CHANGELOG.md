@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.13.2
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.13.1...v0.13.2)
+
+### 💅 Refactors
+
+- Simplify logger enum parsing and utility implementations ([e757b91](https://github.com/kikiutils/rust/commit/e757b91))
+
+### 📦 Build
+
+- **deps:** Relax shared dependency version requirements ([010b9ff](https://github.com/kikiutils/rust/commit/010b9ff))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.13.1
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.13.0...v0.13.1)
