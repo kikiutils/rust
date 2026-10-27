@@ -53,23 +53,14 @@ struct ManagedTaskEntry {
     completion: CancellationToken,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct TaskManager {
     entries: Arc<FxDashMap<TaskId, ManagedTaskEntry>>,
 }
 
-impl Default for TaskManager {
-    #[inline]
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TaskManager {
     pub fn new() -> Self {
-        Self {
-            entries: Arc::new(FxDashMap::default()),
-        }
+        Self::default()
     }
 
     // Private methods

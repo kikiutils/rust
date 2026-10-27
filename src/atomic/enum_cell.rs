@@ -9,17 +9,17 @@ use std::{
 use anyhow::{
     Result,
     anyhow,
-    bail,
+    ensure,
 };
 
 // Structs
 #[derive(Debug)]
-pub struct AtomicEnumCell<T: Eq + Into<u8> + PartialEq + TryFrom<u8>> {
+pub struct AtomicEnumCell<T: Eq + Into<u8> + TryFrom<u8>> {
     _marker: PhantomData<T>,
     inner: AtomicU8,
 }
 
-impl<T: Eq + Into<u8> + PartialEq + TryFrom<u8>> AtomicEnumCell<T> {
+impl<T: Eq + Into<u8> + TryFrom<u8>> AtomicEnumCell<T> {
     #[inline]
     pub fn new(value: T) -> Self {
         Self {
@@ -36,10 +36,7 @@ impl<T: Eq + Into<u8> + PartialEq + TryFrom<u8>> AtomicEnumCell<T> {
     )]
     pub fn ensure<F: FnOnce(T) -> String>(&self, expected: T, message: F) -> Result<()> {
         let value = self.get();
-        if value != expected {
-            bail!(message(value));
-        }
-
+        ensure!(value == expected, message(value));
         Ok(())
     }
 
@@ -125,7 +122,7 @@ mod tests {
     fn ensure_returns_ok_for_expected_value() {
         let cell = AtomicEnumCell::new(TestState::Ready);
 
-        let result = cell.ensure(TestState::Ready, |_| "unexpected state".to_owned());
+        let result = cell.ensure(TestState::Ready, |_| panic!("message must not be evaluated on success"));
 
         assert!(result.is_ok());
     }

@@ -4,7 +4,7 @@ use anyhow::{
     Context,
     Ok,
     Result,
-    bail,
+    ensure,
 };
 use tracing_subscriber::{
     EnvFilter,
@@ -126,9 +126,10 @@ impl LoggerGuard {
 /// # }
 /// ```
 pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
-    if options.non_blocking.channel_capacity == 0 {
-        bail!("logger channel capacity must be greater than 0");
-    }
+    ensure!(
+        options.non_blocking.channel_capacity > 0,
+        "logger channel capacity must be greater than 0"
+    );
 
     // Parse every filter before spawning workers so invalid directives fail without side effects.
     let console = options

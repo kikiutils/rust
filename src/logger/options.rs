@@ -6,6 +6,7 @@ use anyhow::{
     bail,
 };
 use pathkit::Path;
+use strum::EnumString;
 
 // Constants/Statics
 const DEFAULT_CHANNEL_CAPACITY: usize = 8192;
@@ -23,19 +24,28 @@ const ENV_LOGGER_FILE_LEVEL: &str = "LOGGER_FILE_LEVEL";
 const ENV_LOGGER_QUEUE_FULL_POLICY: &str = "LOGGER_QUEUE_FULL_POLICY";
 
 // Enums
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, EnumString)]
 #[non_exhaustive]
+#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum LoggerConsoleStream {
     #[default]
     Stdout,
     Stderr,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, EnumString)]
 #[non_exhaustive]
+#[strum(ascii_case_insensitive)]
 pub enum LoggerQueueFullPolicy {
+    #[strum(serialize = "block", serialize = "blocking")]
     Block,
     #[default]
+    #[strum(
+        serialize = "drop",
+        serialize = "drop_newest",
+        serialize = "drop-newest",
+        serialize = "lossy"
+    )]
     DropNewest,
 }
 
@@ -292,11 +302,9 @@ impl<F: Fn(&str) -> Option<String>> EnvReader<F> {
             return Ok(LoggerConsoleStream::default());
         };
 
-        match value.to_ascii_lowercase().as_str() {
-            "stdout" => Ok(LoggerConsoleStream::Stdout),
-            "stderr" => Ok(LoggerConsoleStream::Stderr),
-            _ => bail!("{ENV_LOGGER_CONSOLE_STREAM} must be one of stdout, stderr"),
-        }
+        value
+            .parse()
+            .map_err(|_| anyhow!("{ENV_LOGGER_CONSOLE_STREAM} must be one of stdout, stderr"))
     }
 
     fn queue_full_policy(&self) -> Result<LoggerQueueFullPolicy> {
@@ -304,11 +312,9 @@ impl<F: Fn(&str) -> Option<String>> EnvReader<F> {
             return Ok(LoggerQueueFullPolicy::default());
         };
 
-        match value.to_ascii_lowercase().as_str() {
-            "block" | "blocking" => Ok(LoggerQueueFullPolicy::Block),
-            "drop" | "drop_newest" | "drop-newest" | "lossy" => Ok(LoggerQueueFullPolicy::DropNewest),
-            _ => bail!("{ENV_LOGGER_QUEUE_FULL_POLICY} must be one of block, drop_newest"),
-        }
+        value
+            .parse()
+            .map_err(|_| anyhow!("{ENV_LOGGER_QUEUE_FULL_POLICY} must be one of block, drop_newest"))
     }
 
     fn value(&self, key: &str) -> Option<String> {
@@ -365,6 +371,43 @@ mod tests {
         assert_eq!(console.stream, LoggerConsoleStream::Stdout);
         assert!(options.file_output.is_none());
 
+        Ok(())
+    }
+
+    #[test]
+    fn from_env_parses_enum_aliases_and_defaults() -> Result<()> {
+        for (value, expected) in [
+            ("stdout", LoggerConsoleStream::Stdout),
+            ("  StDoUt  ", LoggerConsoleStream::Stdout),
+            ("stderr", LoggerConsoleStream::Stderr),
+            ("  StDeRr  ", LoggerConsoleStream::Stderr),
+            ("  ", LoggerConsoleStream::default()),
+        ] {
+            let options = from_pairs(&[(ENV_LOGGER_CONSOLE_STREAM, value)])?;
+            assert_eq!(
+                options.console_output.map(|console| console.stream),
+                Some(expected),
+                "{value:?}"
+            );
+        }
+
+        for (value, expected) in [
+            ("block", LoggerQueueFullPolicy::Block),
+            ("blocking", LoggerQueueFullPolicy::Block),
+            ("  BlOcKiNg  ", LoggerQueueFullPolicy::Block),
+            ("drop", LoggerQueueFullPolicy::DropNewest),
+            ("drop_newest", LoggerQueueFullPolicy::DropNewest),
+            ("drop-newest", LoggerQueueFullPolicy::DropNewest),
+            ("lossy", LoggerQueueFullPolicy::DropNewest),
+            ("  DrOp_NeWeSt  ", LoggerQueueFullPolicy::DropNewest),
+            ("  ", LoggerQueueFullPolicy::default()),
+        ] {
+            let options = from_pairs(&[(ENV_LOGGER_QUEUE_FULL_POLICY, value)])?;
+            assert_eq!(options.non_blocking.queue_full_policy, expected, "{value:?}");
+        }
+
+        let options = from_pairs(&[])?;
+        assert_eq!(options.non_blocking.queue_full_policy, LoggerQueueFullPolicy::default());
         Ok(())
     }
 
