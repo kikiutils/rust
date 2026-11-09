@@ -11,12 +11,9 @@ use criterion::{
     criterion_main,
 };
 use kikiutils::task::manager::TaskManager;
-use tokio::{
-    runtime::{
-        Builder,
-        Runtime,
-    },
-    spawn,
+use tokio::runtime::{
+    Builder,
+    Runtime,
 };
 
 // Constants/Statics
@@ -73,7 +70,7 @@ fn bench_single_task(c: &mut Criterion) {
 
     group.bench_function("tokio_spawn_join", |b| {
         b.to_async(&runtime).iter(async || {
-            black_box(spawn(async { black_box(()) }).await.is_ok());
+            black_box(tokio::task::spawn(async { black_box(()) }).await.is_ok());
         });
     });
 

@@ -1,16 +1,13 @@
 use std::{
-    io::{
-        Result as IoResult,
-        Write,
-    },
-    mem::take,
+    io,
+    io::Write,
+    mem,
     sync::{
         Arc,
         atomic::{
             AtomicU64,
             Ordering,
         },
-        mpsc::SyncSender,
     },
 };
 
@@ -25,8 +22,8 @@ const LINE_CAPACITY_HINT: usize = 256;
 // Enums
 #[derive(Debug)]
 pub(super) enum LoggerCommand {
-    Flush(SyncSender<()>),
-    Shutdown(SyncSender<()>),
+    Flush(std::sync::mpsc::SyncSender<()>),
+    Shutdown(std::sync::mpsc::SyncSender<()>),
     /// `bytes[..target_len]` is the raw event target, `bytes[target_len..]` is the formatted line.
     Write {
         bytes: Vec<u8>,
@@ -42,7 +39,7 @@ pub(super) struct QueueMakeWriter {
     dropped: Arc<AtomicU64>,
     full_policy: LoggerQueueFullPolicy,
     route_by_target: bool,
-    sender: SyncSender<LoggerCommand>,
+    sender: std::sync::mpsc::SyncSender<LoggerCommand>,
 }
 
 impl<'a> MakeWriter<'a> for QueueMakeWriter {
@@ -74,7 +71,7 @@ impl<'a> MakeWriter<'a> for QueueMakeWriter {
 
 impl QueueMakeWriter {
     pub(super) fn new(
-        sender: SyncSender<LoggerCommand>,
+        sender: std::sync::mpsc::SyncSender<LoggerCommand>,
         full_policy: LoggerQueueFullPolicy,
         route_by_target: bool,
         dropped: Arc<AtomicU64>,
@@ -111,7 +108,7 @@ impl Drop for QueueWriter<'_> {
     fn drop(&mut self) {
         if self.bytes.len() > self.target_len {
             self.queue.send(LoggerCommand::Write {
-                bytes: take(&mut self.bytes),
+                bytes: mem::take(&mut self.bytes),
                 target_len: self.target_len,
             });
         }
@@ -119,11 +116,11 @@ impl Drop for QueueWriter<'_> {
 }
 
 impl Write for QueueWriter<'_> {
-    fn flush(&mut self) -> IoResult<()> {
+    fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
 
-    fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.bytes.extend_from_slice(buf);
         Ok(buf.len())
     }
@@ -131,7 +128,6 @@ impl Write for QueueWriter<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc::sync_channel;
 
     use anyhow::{
         Result,
@@ -142,7 +138,7 @@ mod tests {
 
     #[test]
     fn drop_newest_counts_dropped_events_without_blocking() -> Result<()> {
-        let (sender, receiver) = sync_channel(1);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let dropped = Arc::new(AtomicU64::new(0));
         let queue = QueueMakeWriter::new(sender, LoggerQueueFullPolicy::DropNewest, false, Arc::clone(&dropped));
 

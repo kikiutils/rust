@@ -72,6 +72,8 @@ impl<T: Eq + Into<u8> + TryFrom<u8>> AtomicEnumCell<T> {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Result;
+
     use super::AtomicEnumCell;
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

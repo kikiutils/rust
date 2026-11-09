@@ -5,7 +5,6 @@ use anyhow::{
     bail,
 };
 use async_trait::async_trait;
-use tokio::sync::Mutex;
 
 use super::state::ServiceState;
 use crate::{
@@ -14,7 +13,7 @@ use crate::{
 };
 
 pub trait AsyncServiceLifecycle: AsyncServiceLifecycleHooks + Send + Sync {
-    fn lifecycle_lock(&self) -> &Mutex<()>;
+    fn lifecycle_lock(&self) -> &tokio::sync::Mutex<()>;
 
     fn state(&self) -> &AtomicEnumCell<ServiceState>;
 

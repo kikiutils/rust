@@ -1,4 +1,4 @@
-use std::fmt::Result as FmtResult;
+use std::fmt;
 
 use anyhow::{
     Context,
@@ -17,7 +17,6 @@ use tracing_subscriber::{
             DefaultFields,
             Writer,
         },
-        layer,
     },
     layer::SubscriberExt,
     registry,
@@ -50,7 +49,7 @@ type BoxedLayer = Box<dyn Layer<Registry> + Send + Sync + 'static>;
 struct FileFields(DefaultFields);
 
 impl<'writer> FormatFields<'writer> for FileFields {
-    fn format_fields<R: RecordFields>(&self, writer: Writer<'writer>, fields: R) -> FmtResult {
+    fn format_fields<R: RecordFields>(&self, writer: Writer<'writer>, fields: R) -> fmt::Result {
         self.0.format_fields(writer, fields)
     }
 }
@@ -162,7 +161,7 @@ pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
 
         logger_guard.workers.push(worker);
         layers.push(
-            layer()
+            tracing_subscriber::fmt::layer()
                 .with_timer(timer)
                 .with_writer(writer)
                 .with_ansi(console_options.ansi_enabled)
@@ -177,7 +176,7 @@ pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
         let (writer, worker) = spawn_worker("kikiutils-logger-file", sink, options.non_blocking, true)?;
         logger_guard.workers.push(worker);
         layers.push(
-            layer()
+            tracing_subscriber::fmt::layer()
                 .fmt_fields(FileFields::default())
                 .with_timer(timer)
                 .with_writer(writer)

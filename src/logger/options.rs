@@ -1,4 +1,4 @@
-use std::env::var;
+use std::env;
 
 use anyhow::{
     Result,
@@ -231,7 +231,7 @@ impl LoggerInitOptions {
     ///
     /// Filter directives are validated by [`init_logger`](super::init_logger).
     pub fn from_env() -> Result<Self> {
-        Self::from_lookup(|key| var(key).ok())
+        Self::from_lookup(|key| env::var(key).ok())
     }
 
     // Private methods

@@ -3,13 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use tokio::{
-    spawn,
-    task::{
-        AbortHandle,
-        try_id,
-    },
-};
+use tokio::task::AbortHandle;
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -40,7 +34,7 @@ impl Drop for CleanupOnDrop {
         // Cancel before removing: `spawn_inner` relies on this order to detect tasks that finished
         // before their entry was registered.
         self.completion.cancel();
-        if let Some(id) = try_id() {
+        if let Some(id) = tokio::task::try_id() {
             self.entries.remove(&id);
         }
     }
@@ -68,7 +62,7 @@ impl TaskManager {
     /// tokens. Skipping the caller keeps a managed task from aborting or cancelling itself, and from
     /// waiting for itself forever.
     fn apply_to_existing(&self, action: &DrainAction) -> Vec<CancellationToken> {
-        let current_id = try_id();
+        let current_id = tokio::task::try_id();
         let mut completions = Vec::with_capacity(self.entries.len());
 
         for entry in self.entries.iter() {
@@ -111,7 +105,7 @@ impl TaskManager {
             entries: Arc::clone(&self.entries),
         };
 
-        let handle = spawn(async move {
+        let handle = tokio::task::spawn(async move {
             let _cleanup = cleanup;
             future.await
         });
@@ -191,7 +185,7 @@ impl TaskManager {
     /// Waits for the task with `id` to finish. Returns `false` if it is not registered or is the
     /// calling task itself, which would otherwise wait for itself forever.
     pub async fn join(&self, id: TaskId) -> bool {
-        if try_id() == Some(id) {
+        if tokio::task::try_id() == Some(id) {
             return false;
         }
 

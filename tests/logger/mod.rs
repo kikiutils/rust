@@ -1,5 +1,5 @@
 use std::{
-    env::temp_dir,
+    env,
     time::{
         SystemTime,
         UNIX_EPOCH,
@@ -101,5 +101,5 @@ fn unique_temp_dir() -> Path {
         .duration_since(UNIX_EPOCH)
         .map_or_default(|duration| duration.as_nanos());
 
-    path!(temp_dir()) / format!("kikiutils-logger-integration-{nanos}")
+    path!(env::temp_dir()) / format!("kikiutils-logger-integration-{nanos}")
 }

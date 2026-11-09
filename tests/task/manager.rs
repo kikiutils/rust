@@ -9,12 +9,6 @@ use std::{
 use kikiutils::task::manager::TaskManager;
 use tokio::{
     runtime::Builder,
-    spawn,
-    sync::oneshot::channel,
-    task::{
-        id,
-        yield_now,
-    },
     time::timeout,
 };
 use tokio_util::sync::CancellationToken;
@@ -102,7 +96,7 @@ async fn manager_cancel_and_abort_by_id_respect_token_and_registration() {
 #[tokio::test]
 async fn manager_join_by_id_waits_for_completion_and_rejects_missing_ids() {
     let manager = TaskManager::new();
-    let (sender, receiver) = channel();
+    let (sender, receiver) = tokio::sync::oneshot::channel();
     let task = manager.spawn(async move { receiver.await.unwrap() });
     let task_id = task.id();
 
@@ -179,14 +173,14 @@ async fn existing_methods_called_from_a_managed_task_skip_the_caller() {
     let supervisor_manager = Arc::clone(&manager);
     let mut supervisor = manager
         .spawn_with_token(async move |cancel_token| {
-            assert!(!supervisor_manager.join(id()).await);
+            assert!(!supervisor_manager.join(tokio::task::id()).await);
             supervisor_manager.join_existing().await;
             supervisor_manager.cancel_and_join_existing().await;
             supervisor_manager.abort_and_join_existing().await;
             supervisor_manager.cancel_existing();
             supervisor_manager.abort_existing();
             // A self-abort only takes effect once the task yields.
-            yield_now().await;
+            tokio::task::yield_now().await;
             cancel_token.is_cancelled()
         })
         .into_join_handle();
@@ -249,7 +243,7 @@ async fn concurrent_spawns_and_completions_do_not_leave_entries() {
     let producers = (0..4)
         .map(|_| {
             let manager = Arc::clone(&manager);
-            spawn(async move { (0..2_000).map(|_| manager.spawn(async {})).collect::<Vec<_>>() })
+            tokio::task::spawn(async move { (0..2_000).map(|_| manager.spawn(async {})).collect::<Vec<_>>() })
         })
         .collect::<Vec<_>>();
 

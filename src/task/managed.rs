@@ -1,7 +1,4 @@
-use tokio::task::{
-    JoinError,
-    JoinHandle,
-};
+use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 
 use super::TaskId;
@@ -9,12 +6,12 @@ use super::TaskId;
 #[derive(Debug)]
 pub struct ManagedTask<T> {
     cancel_token: Option<CancellationToken>,
-    handle: JoinHandle<T>,
+    handle: tokio::task::JoinHandle<T>,
     id: TaskId,
 }
 
 impl<T> ManagedTask<T> {
-    pub(super) fn new(id: TaskId, handle: JoinHandle<T>, cancel_token: Option<CancellationToken>) -> Self {
+    pub(super) fn new(id: TaskId, handle: tokio::task::JoinHandle<T>, cancel_token: Option<CancellationToken>) -> Self {
         Self {
             cancel_token,
             handle,
@@ -38,11 +35,11 @@ impl<T> ManagedTask<T> {
         self.id
     }
 
-    pub fn into_join_handle(self) -> JoinHandle<T> {
+    pub fn into_join_handle(self) -> tokio::task::JoinHandle<T> {
         self.handle
     }
 
-    pub async fn join(self) -> Result<T, JoinError> {
+    pub async fn join(self) -> Result<T, tokio::task::JoinError> {
         self.handle.await
     }
 }

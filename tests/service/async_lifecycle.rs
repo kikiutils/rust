@@ -29,11 +29,7 @@ use kikiutils::{
     },
     task::manager::TaskManager,
 };
-use tokio::{
-    sync::Mutex,
-    task::yield_now,
-    time::timeout,
-};
+use tokio::time::timeout;
 
 // Constants/Statics
 const CANCEL_AFTER: Duration = Duration::from_millis(20);
@@ -43,7 +39,7 @@ struct TestService {
     cleanup_called: AtomicBool,
     cleanup_should_fail: AtomicBool,
     cleanup_saw_task_exited: AtomicBool,
-    lifecycle_lock: Mutex<()>,
+    lifecycle_lock: tokio::sync::Mutex<()>,
     state: AtomicEnumCell<ServiceState>,
     task_exited: Arc<AtomicBool>,
     task_manager: TaskManager,
@@ -70,7 +66,7 @@ impl TestService {
             cleanup_called: AtomicBool::new(false),
             cleanup_should_fail: AtomicBool::new(false),
             cleanup_saw_task_exited: AtomicBool::new(false),
-            lifecycle_lock: Mutex::new(()),
+            lifecycle_lock: tokio::sync::Mutex::new(()),
             state: AtomicEnumCell::new(state),
             task_exited: Arc::new(AtomicBool::new(false)),
             task_manager: TaskManager::new(),
@@ -184,7 +180,7 @@ async fn execute_stop_runs_cleanup_only_after_tasks_exit() {
     service.task_manager.spawn_with_token(async move |cancel_token| {
         cancel_token.cancelled().await;
         // Simulate a task that needs another poll to finish shutting down.
-        yield_now().await;
+        tokio::task::yield_now().await;
         task_exited.store(true, Ordering::SeqCst);
     });
 

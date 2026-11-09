@@ -3,11 +3,10 @@ use std::{
         File,
         OpenOptions,
     },
+    io,
     io::{
         BufWriter,
         Write,
-        stderr,
-        stdout,
     },
     sync::{
         Arc,
@@ -15,16 +14,8 @@ use std::{
             AtomicU64,
             Ordering,
         },
-        mpsc::{
-            Receiver,
-            SyncSender,
-            sync_channel,
-        },
     },
-    thread::{
-        Builder,
-        JoinHandle,
-    },
+    thread,
 };
 
 use anyhow::{
@@ -81,8 +72,8 @@ impl LogSink for ConsoleSink {
 impl ConsoleSink {
     pub(super) fn new(stream: LoggerConsoleStream) -> Self {
         let writer: Box<dyn Write + Send> = match stream {
-            LoggerConsoleStream::Stdout => Box::new(stdout()),
-            LoggerConsoleStream::Stderr => Box::new(stderr()),
+            LoggerConsoleStream::Stdout => Box::new(io::stdout()),
+            LoggerConsoleStream::Stderr => Box::new(io::stderr()),
         };
 
         Self {
@@ -185,8 +176,8 @@ impl SinkFile {
 #[derive(Debug)]
 pub(super) struct LoggerWorkerGuard {
     dropped: Arc<AtomicU64>,
-    handle: Option<JoinHandle<()>>,
-    sender: SyncSender<LoggerCommand>,
+    handle: Option<thread::JoinHandle<()>>,
+    sender: std::sync::mpsc::SyncSender<LoggerCommand>,
 }
 
 impl LoggerWorkerGuard {
@@ -195,7 +186,7 @@ impl LoggerWorkerGuard {
     }
 
     pub(super) fn flush(&self) -> Result<()> {
-        let (ack_sender, ack_receiver) = sync_channel(0);
+        let (ack_sender, ack_receiver) = std::sync::mpsc::sync_channel(0);
         self.sender
             .send(LoggerCommand::Flush(ack_sender))
             .context("failed to send logger flush command")?;
@@ -210,7 +201,7 @@ impl LoggerWorkerGuard {
             return Ok(());
         };
 
-        let (ack_sender, ack_receiver) = sync_channel(0);
+        let (ack_sender, ack_receiver) = std::sync::mpsc::sync_channel(0);
         self.sender
             .send(LoggerCommand::Shutdown(ack_sender))
             .context("failed to send logger shutdown command")?;
@@ -230,8 +221,8 @@ pub(super) fn spawn_worker(
     options: LoggerNonBlockingOptions,
     route_by_target: bool,
 ) -> Result<(QueueMakeWriter, LoggerWorkerGuard)> {
-    let (sender, receiver) = sync_channel(options.channel_capacity);
-    let handle = Builder::new()
+    let (sender, receiver) = std::sync::mpsc::sync_channel(options.channel_capacity);
+    let handle = thread::Builder::new()
         .name(name.to_owned())
         .spawn(move || run_worker(&receiver, sink))
         .with_context(|| format!("failed to spawn {name} worker"))?;
@@ -255,7 +246,7 @@ pub(super) fn spawn_worker(
 /// Drains every queued command before flushing, so bursts are written in batches while an idle
 /// queue still flushes each line immediately. Sinks flush their buffers on drop when all senders
 /// disconnect.
-fn run_worker(receiver: &Receiver<LoggerCommand>, mut sink: impl LogSink) {
+fn run_worker(receiver: &std::sync::mpsc::Receiver<LoggerCommand>, mut sink: impl LogSink) {
     while let Ok(mut command) = receiver.recv() {
         loop {
             match command {
