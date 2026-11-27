@@ -1,154 +1,360 @@
-use std::future::Future;
+use std::{
+    error::Error,
+    fmt,
+    future::Future,
+    mem,
+    sync::{
+        Arc,
+        Mutex,
+        MutexGuard,
+        PoisonError,
+    },
+    time::Duration,
+};
 
 use anyhow::{
     Result,
     bail,
 };
-use async_trait::async_trait;
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 use super::state::ServiceState;
-use crate::{
-    atomic::enum_cell::AtomicEnumCell,
-    task::manager::TaskManager,
-};
+use crate::task::manager::TaskManager;
 
-pub trait AsyncServiceLifecycle: AsyncServiceLifecycleHooks + Send + Sync {
-    fn lifecycle_lock(&self) -> &tokio::sync::Mutex<()>;
+// Traits
 
-    fn state(&self) -> &AtomicEnumCell<ServiceState>;
+/// A restartable background service; call it through [`AsyncServiceLifecycleExt`].
+///
+/// Every start gets a fresh set of tasks, and stopping cancels them, waits for them to exit and then
+/// runs [`on_stop`](Self::on_stop). Starts and stops run one at a time, so a stop waits for a start in
+/// progress; to interrupt a slow start, cancel the parent token passed to
+/// [`AsyncServiceLifecycleCore::with_parent`].
+///
+/// A stop waits for the service's tasks, so never stop a service from one of its own tasks, and never
+/// start or stop it from its own `on_start` or `on_stop`. If the `on_stop` of one service stops
+/// another, the tasks of that other service must not wait for the first one to stop.
+pub trait AsyncServiceLifecycle: Send + Sync {
+    fn lifecycle(&self) -> &AsyncServiceLifecycleCore;
 
-    fn task_manager(&self) -> &TaskManager;
+    /// If `tasks` is cancelled before this returns, e.g. by the parent, the start fails and rolls back
+    /// even if this returns `Ok(())`; select on `tasks.token().cancelled_owned()` around slow startup
+    /// work.
+    fn on_start(self: &Arc<Self>, tasks: &AsyncServiceTasks) -> impl Future<Output = Result<()>> + Send;
 
-    fn execute_start<Fut: Future<Output = Result<()>> + Send>(
-        &self,
-        start_future: Fut,
-    ) -> impl Future<Output = Result<()>> + Send {
-        async {
-            let _lifecycle_lock = self.lifecycle_lock().lock().await;
+    /// Releases the service's resources once every task of the run has exited, including after a
+    /// failed start. Runs again if a stop is dropped or times out while it runs, so it must tolerate
+    /// being repeated.
+    fn on_stop(&self) -> impl Future<Output = Result<()>> + Send {
+        async { Ok(()) }
+    }
+}
 
-            match self.state().get() {
-                ServiceState::CleanupFailed => bail!("cannot start service after cleanup failed; retry cleanup first"),
-                ServiceState::Running | ServiceState::Starting | ServiceState::Stopping => return Ok(()),
-                ServiceState::Stopped => {
-                    self.task_manager().reopen();
-                    self.state().store(ServiceState::Starting);
-                },
-            }
-
-            let cancel_guard = CleanupFailedOnCancel::new(self.state());
-            let result = match start_future.await {
-                Ok(()) => {
-                    self.state().store(ServiceState::Running);
-                    Ok(())
-                },
-                Err(start_error) => {
-                    // Preserve the startup error; cleanup failure is represented by the resulting state.
-                    let _ = join_tasks_then_cleanup_and_set_state(self).await;
-                    Err(start_error)
-                },
-            };
-
-            cancel_guard.disarm();
-            result
-        }
+/// Implemented for every [`AsyncServiceLifecycle`], so the lifecycle state machine cannot be
+/// overridden.
+pub trait AsyncServiceLifecycleExt: AsyncServiceLifecycle {
+    /// Does nothing if the service is already running, but fails if its run was cancelled by the
+    /// parent; stop it first.
+    fn start(self: &Arc<Self>) -> impl Future<Output = Result<()>> + Send {
+        run_start(self)
     }
 
-    fn execute_stop(&self) -> impl Future<Output = Result<()>> + Send {
-        async {
-            let _lifecycle_lock = self.lifecycle_lock().lock().await;
+    fn stop(&self) -> impl Future<Output = Result<()>> + Send {
+        run_stop(self)
+    }
 
-            match self.state().get() {
-                ServiceState::Stopped | ServiceState::Stopping => return Ok(()),
-                ServiceState::Running | ServiceState::Starting | ServiceState::CleanupFailed => {
-                    self.state().store(ServiceState::Stopping);
-                },
+    /// Bounds the whole stop, including waiting for a start or stop in progress and `on_stop`, and fails
+    /// with [`StopTimedOut`] when it runs out. If the stop had begun, the service stays
+    /// [`ServiceState::Stopping`] and the next stop retries.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the runtime has no time driver.
+    fn stop_with_timeout(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send {
+        async move {
+            match tokio::time::timeout(timeout, run_stop(self)).await {
+                Ok(result) => result,
+                Err(_) => Err(StopTimedOut { timeout }.into()),
             }
-
-            let cancel_guard = CleanupFailedOnCancel::new(self.state());
-            let result = join_tasks_then_cleanup_and_set_state(self).await;
-            cancel_guard.disarm();
-            result
         }
     }
 }
 
-#[async_trait]
-pub trait AsyncServiceLifecycleHooks: Send + Sync {
-    /// Releases the service's resources when it stops or fails to start.
-    ///
-    /// Runs only after every managed task has been cancelled and has exited, so tasks must exit on
-    /// cancellation by themselves rather than rely on this cleanup to unblock them.
-    async fn cleanup_resources(&self) -> Result<()>;
+impl<T: AsyncServiceLifecycle + ?Sized> AsyncServiceLifecycleExt for T {}
+
+// Enums
+#[derive(Debug)]
+enum Phase {
+    Running(AsyncServiceTasks),
+    Starting(AsyncServiceTasks),
+    Stopped,
+    Stopping(AsyncServiceTasks),
+}
+
+impl Phase {
+    fn into_stopping(self) -> Self {
+        match self {
+            Self::Running(tasks) | Self::Starting(tasks) | Self::Stopping(tasks) => Self::Stopping(tasks),
+            Self::Stopped => Self::Stopped,
+        }
+    }
+
+    fn state(&self) -> ServiceState {
+        match self {
+            Self::Running(_) => ServiceState::Running,
+            Self::Starting(_) => ServiceState::Starting,
+            Self::Stopped => ServiceState::Stopped,
+            Self::Stopping(_) => ServiceState::Stopping,
+        }
+    }
+
+    fn tasks(&self) -> Option<&AsyncServiceTasks> {
+        match self {
+            Self::Running(tasks) | Self::Starting(tasks) | Self::Stopping(tasks) => Some(tasks),
+            Self::Stopped => None,
+        }
+    }
 }
 
 // Structs
-
-/// Marks the service as [`ServiceState::CleanupFailed`] if a start or stop future is dropped before it
-/// finishes, e.g. by a timeout or `select!`. Otherwise the state would stay `Starting` or `Stopping`,
-/// and later calls would silently return `Ok(())` while tasks and resources were left behind. From
-/// `CleanupFailed`, the next stop runs cleanup again and start is rejected until it succeeds.
-struct CleanupFailedOnCancel<'a> {
-    armed: bool,
-    state: &'a AtomicEnumCell<ServiceState>,
+#[derive(Debug)]
+pub struct AsyncServiceLifecycleCore {
+    lock: tokio::sync::Mutex<()>,
+    parent: CancellationToken,
+    phase: Mutex<Phase>,
 }
 
-impl Drop for CleanupFailedOnCancel<'_> {
-    fn drop(&mut self) {
-        if self.armed {
-            self.state.store(ServiceState::CleanupFailed);
+impl Default for AsyncServiceLifecycleCore {
+    fn default() -> Self {
+        Self::with_parent(&CancellationToken::new())
+    }
+}
+
+impl AsyncServiceLifecycleCore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Cancelling `parent` cancels the current run, including a start in progress, and rejects later
+    /// starts.
+    pub fn with_parent(parent: &CancellationToken) -> Self {
+        Self {
+            lock: tokio::sync::Mutex::new(()),
+            parent: parent.clone(),
+            phase: Mutex::new(Phase::Stopped),
+        }
+    }
+
+    // Public methods
+    pub fn state(&self) -> ServiceState {
+        self.phase().state()
+    }
+
+    // Private methods
+    fn phase(&self) -> MutexGuard<'_, Phase> {
+        // The guarded value stays valid even if a holder panicked.
+        self.phase.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn set_phase(&self, phase: Phase) {
+        *self.phase() = phase;
+    }
+
+    /// Closes the run to new tasks in the same step, so nothing can join it once it is seen stopping.
+    fn set_stopping(&self) {
+        let mut phase = self.phase();
+        *phase = mem::replace(&mut *phase, Phase::Stopped).into_stopping();
+        if let Some(tasks) = phase.tasks() {
+            tasks.close();
         }
     }
 }
 
-impl<'a> CleanupFailedOnCancel<'a> {
-    fn new(state: &'a AtomicEnumCell<ServiceState>) -> Self {
-        Self { armed: true, state }
+/// Clones spawn into the same run. Spawning fails with [`TasksClosed`] once the run begins stopping,
+/// so no task can start while the stop waits for the others or `on_stop` releases resources.
+#[derive(Clone, Debug)]
+pub struct AsyncServiceTasks {
+    manager: TaskManager,
+    open: Arc<Mutex<bool>>,
+}
+
+impl AsyncServiceTasks {
+    fn new(parent: &CancellationToken) -> Self {
+        Self {
+            manager: TaskManager::with_parent(parent),
+            open: Arc::new(Mutex::new(true)),
+        }
     }
 
+    // Public methods
+    pub fn is_cancelled(&self) -> bool {
+        self.manager.is_cancelled()
+    }
+
+    pub fn spawn<F>(&self, future: F) -> Result<JoinHandle<F::Output>, TasksClosed>
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        // Spawning under the lock makes every admitted task visible to the stop that closes it.
+        let open = self.open();
+        if !*open {
+            return Err(TasksClosed);
+        }
+
+        Ok(self.manager.spawn(future))
+    }
+
+    /// `f` runs even if spawning then fails; the future it returns is dropped unpolled.
+    pub fn spawn_with_token<F, Fut>(&self, f: F) -> Result<JoinHandle<Fut::Output>, TasksClosed>
+    where
+        F: FnOnce(CancellationToken) -> Fut,
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
+    {
+        self.spawn(f(self.token()))
+    }
+
+    /// Cancelled when the run is stopped or the parent is cancelled.
+    pub fn token(&self) -> CancellationToken {
+        self.manager.token()
+    }
+
+    // Private methods
+    fn close(&self) {
+        *self.open() = false;
+    }
+
+    fn open(&self) -> MutexGuard<'_, bool> {
+        self.open.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Leaves the service [`ServiceState::Stopping`] with its run cancelled if the start future is dropped
+/// before `on_start` finishes, so the next stop still waits for the tasks and runs `on_stop`.
+struct DroppedStartGuard<'a> {
+    armed: bool,
+    core: &'a AsyncServiceLifecycleCore,
+    tasks: &'a AsyncServiceTasks,
+}
+
+impl Drop for DroppedStartGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.tasks.manager.cancel();
+            self.core.set_stopping();
+        }
+    }
+}
+
+impl DroppedStartGuard<'_> {
     fn disarm(mut self) {
         self.armed = false;
     }
 }
 
-// Functions
-
-/// Cancels managed tasks and waits for them to exit before cleaning up, so tasks never observe
-/// resources that are already being torn down.
-async fn join_tasks_then_cleanup_and_set_state<T: AsyncServiceLifecycle + ?Sized>(service: &T) -> Result<()> {
-    service.task_manager().shutdown().await;
-    let cleanup_result = service.cleanup_resources().await;
-    let cleanup_state = match cleanup_result {
-        Ok(()) => ServiceState::Stopped,
-        Err(_) => ServiceState::CleanupFailed,
-    };
-
-    service.state().store(cleanup_state);
-    cleanup_result
+/// Returned by [`AsyncServiceLifecycleExt::stop_with_timeout`] inside the [`anyhow::Error`], so
+/// callers can tell a timeout apart from a failing `on_stop`.
+#[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
+pub struct StopTimedOut {
+    pub timeout: Duration,
 }
 
-// Macros
-#[macro_export]
-macro_rules! impl_async_service_lifecycle {
-    ($($t:ty),+ $(,)?) => {
-        $(
-            impl $crate::service::async_lifecycle::AsyncServiceLifecycle for $t {
-                #[inline]
-                fn lifecycle_lock(&self) -> &::tokio::sync::Mutex<()> {
-                    &self.lifecycle_lock
-                }
+impl fmt::Display for StopTimedOut {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "service did not stop within {:?}; stop it again to retry",
+            self.timeout
+        )
+    }
+}
 
-                #[inline]
-                fn state(
-                    &self,
-                ) -> &$crate::atomic::enum_cell::AtomicEnumCell<$crate::service::state::ServiceState> {
-                    &self.state
-                }
+impl Error for StopTimedOut {}
 
-                #[inline]
-                fn task_manager(&self) -> &$crate::task::manager::TaskManager {
-                    &self.task_manager
-                }
-            }
-        )*
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct TasksClosed;
+
+impl fmt::Display for TasksClosed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("cannot spawn into a service run that is stopping or stopped")
+    }
+}
+
+impl Error for TasksClosed {}
+
+// Functions
+
+/// Requires the lifecycle lock and [`ServiceState::Stopping`]. The run is only released once
+/// `on_stop` has completed, so a stop that is dropped midway is retried by the next one.
+async fn finish_stop<T: AsyncServiceLifecycle + ?Sized>(service: &T) -> Result<()> {
+    let core = service.lifecycle();
+    let Some(tasks) = core.phase().tasks().cloned() else {
+        return Ok(());
     };
+
+    tasks.manager.shutdown().await;
+    let result = service.on_stop().await;
+    core.set_phase(Phase::Stopped);
+    result
+}
+
+async fn run_start<T: AsyncServiceLifecycle + ?Sized>(service: &Arc<T>) -> Result<()> {
+    let core = service.lifecycle();
+    let _lock = core.lock.lock().await;
+
+    let tasks = {
+        let mut phase = core.phase();
+        match &*phase {
+            Phase::Running(tasks) => {
+                if tasks.is_cancelled() {
+                    bail!("service run was cancelled by its parent; stop it first");
+                }
+
+                return Ok(());
+            },
+            Phase::Starting(_) | Phase::Stopping(_) => {
+                bail!("cannot start service before its previous run is stopped; stop it first");
+            },
+            Phase::Stopped => {},
+        }
+
+        let tasks = AsyncServiceTasks::new(&core.parent);
+        if tasks.is_cancelled() {
+            bail!("cannot start service after its parent token was cancelled");
+        }
+
+        *phase = Phase::Starting(tasks.clone());
+        tasks
+    };
+
+    let guard = DroppedStartGuard {
+        armed: true,
+        core,
+        tasks: &tasks,
+    };
+
+    let result = service.on_start(&tasks).await;
+    guard.disarm();
+    if result.is_ok() && !tasks.is_cancelled() {
+        core.set_phase(Phase::Running(tasks));
+        return Ok(());
+    }
+
+    core.set_stopping();
+    // Preserve the startup error; a failing `on_stop` during the rollback is not reported here.
+    let _ = finish_stop(service.as_ref()).await;
+    match result {
+        Ok(()) => bail!("service start was cancelled"),
+        Err(start_error) => Err(start_error),
+    }
+}
+
+async fn run_stop<T: AsyncServiceLifecycle + ?Sized>(service: &T) -> Result<()> {
+    let core = service.lifecycle();
+    let _lock = core.lock.lock().await;
+    core.set_stopping();
+    finish_stop(service).await
 }

@@ -1,14 +1,10 @@
-use num_enum::{
-    IntoPrimitive,
-    TryFromPrimitive,
-};
-
-#[repr(u8)]
-#[derive(Clone, Copy, Debug, Eq, IntoPrimitive, PartialEq, TryFromPrimitive)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum ServiceState {
-    CleanupFailed,
-    Running,
-    Starting,
     Stopped,
+    Starting,
+    Running,
+    /// Also kept after a start was dropped midway, or a stop was dropped or timed out after it began:
+    /// starting is rejected until a stop finishes.
     Stopping,
 }

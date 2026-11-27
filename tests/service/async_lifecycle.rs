@@ -1,11 +1,17 @@
 #![allow(clippy::unwrap_used)]
 
 use std::{
-    future::pending,
+    future::{
+        Future,
+        pending,
+        ready,
+    },
     sync::{
         Arc,
+        Mutex,
         atomic::{
             AtomicBool,
+            AtomicUsize,
             Ordering,
         },
     },
@@ -15,44 +21,105 @@ use std::{
 use anyhow::{
     Result,
     anyhow,
+    bail,
 };
-use async_trait::async_trait;
-use kikiutils::{
-    atomic::enum_cell::AtomicEnumCell,
-    impl_async_service_lifecycle,
-    service::{
-        async_lifecycle::{
-            AsyncServiceLifecycle,
-            AsyncServiceLifecycleHooks,
-        },
-        state::ServiceState,
+use kikiutils::service::{
+    async_lifecycle::{
+        AsyncServiceLifecycle,
+        AsyncServiceLifecycleCore,
+        AsyncServiceLifecycleExt,
+        AsyncServiceTasks,
+        StopTimedOut,
     },
-    task::manager::TaskManager,
+    state::ServiceState,
 };
-use tokio::time::timeout;
+use tokio::{
+    task::JoinHandle,
+    time::timeout,
+};
+use tokio_util::sync::CancellationToken;
 
 // Constants/Statics
-const CANCEL_AFTER: Duration = Duration::from_millis(20);
+const COMPLETION_TIMEOUT: Duration = Duration::from_secs(5);
+const SHORT: Duration = Duration::from_millis(20);
 
 // Structs
+#[derive(Default)]
 struct TestService {
-    cleanup_called: AtomicBool,
-    cleanup_should_fail: AtomicBool,
-    cleanup_saw_task_exited: AtomicBool,
-    lifecycle_lock: tokio::sync::Mutex<()>,
-    state: AtomicEnumCell<ServiceState>,
+    last_token: Mutex<Option<CancellationToken>>,
+    lifecycle: AsyncServiceLifecycleCore,
+    on_start_calls: AtomicUsize,
+    on_stop_blocks: AtomicBool,
+    on_stop_calls: AtomicUsize,
+    on_stop_saw_task_exited: AtomicBool,
+    on_stop_should_fail: AtomicBool,
+    spawn_cooperative_task: AtomicBool,
+    spawn_stuck_task: AtomicBool,
+    start_blocks_until_cancelled: AtomicBool,
+    start_gate: CancellationToken,
+    start_should_fail: AtomicBool,
+    start_waits_for_gate: AtomicBool,
+    stopping_spawn_rejected: Arc<AtomicBool>,
+    tasks: Mutex<Option<AsyncServiceTasks>>,
+    stuck_task: Mutex<Option<JoinHandle<()>>>,
     task_exited: Arc<AtomicBool>,
-    task_manager: TaskManager,
+    token_live_at_start: AtomicBool,
 }
 
-#[async_trait]
-impl AsyncServiceLifecycleHooks for TestService {
-    async fn cleanup_resources(&self) -> Result<()> {
-        self.cleanup_called.store(true, Ordering::SeqCst);
-        self.cleanup_saw_task_exited
-            .store(self.task_exited.load(Ordering::SeqCst), Ordering::SeqCst);
+impl AsyncServiceLifecycle for TestService {
+    fn lifecycle(&self) -> &AsyncServiceLifecycleCore {
+        &self.lifecycle
+    }
 
-        if self.cleanup_should_fail.load(Ordering::SeqCst) {
+    async fn on_start(self: &Arc<Self>, tasks: &AsyncServiceTasks) -> Result<()> {
+        self.on_start_calls.fetch_add(1, Ordering::SeqCst);
+        self.token_live_at_start.store(!tasks.is_cancelled(), Ordering::SeqCst);
+        *self.last_token.lock().unwrap() = Some(tasks.token());
+        *self.tasks.lock().unwrap() = Some(tasks.clone());
+
+        if flag(&self.spawn_cooperative_task) {
+            let stopping_spawn_rejected = Arc::clone(&self.stopping_spawn_rejected);
+            let task_exited = Arc::clone(&self.task_exited);
+            let run_tasks = tasks.clone();
+            tasks.spawn_with_token(async move |cancel_token| {
+                cancel_token.cancelled().await;
+                let spawned = run_tasks.spawn(ready(()));
+                stopping_spawn_rejected.store(spawned.is_err(), Ordering::SeqCst);
+                // A task that needs another poll to finish shutting down.
+                tokio::task::yield_now().await;
+                task_exited.store(true, Ordering::SeqCst);
+            })?;
+        }
+
+        if flag(&self.spawn_stuck_task) {
+            *self.stuck_task.lock().unwrap() = Some(tasks.spawn(pending::<()>())?);
+        }
+
+        if flag(&self.start_blocks_until_cancelled) {
+            tasks.token().cancelled().await;
+        }
+
+        if flag(&self.start_waits_for_gate) {
+            self.start_gate.cancelled().await;
+        }
+
+        if flag(&self.start_should_fail) {
+            bail!("startup failed");
+        }
+
+        Ok(())
+    }
+
+    async fn on_stop(&self) -> Result<()> {
+        self.on_stop_calls.fetch_add(1, Ordering::SeqCst);
+        self.on_stop_saw_task_exited
+            .store(flag(&self.task_exited), Ordering::SeqCst);
+
+        if flag(&self.on_stop_blocks) {
+            pending::<()>().await;
+        }
+
+        if flag(&self.on_stop_should_fail) {
             Err(anyhow!("cleanup failed"))
         } else {
             Ok(())
@@ -61,222 +128,285 @@ impl AsyncServiceLifecycleHooks for TestService {
 }
 
 impl TestService {
-    fn new(state: ServiceState) -> Self {
-        Self {
-            cleanup_called: AtomicBool::new(false),
-            cleanup_should_fail: AtomicBool::new(false),
-            cleanup_saw_task_exited: AtomicBool::new(false),
-            lifecycle_lock: tokio::sync::Mutex::new(()),
-            state: AtomicEnumCell::new(state),
-            task_exited: Arc::new(AtomicBool::new(false)),
-            task_manager: TaskManager::new(),
+    fn abort_stuck_task(&self) {
+        if let Some(task) = self.stuck_task.lock().unwrap().take() {
+            task.abort();
         }
+    }
+
+    fn last_token(&self) -> CancellationToken {
+        self.last_token.lock().unwrap().clone().unwrap()
+    }
+
+    fn on_stop_calls(&self) -> usize {
+        self.on_stop_calls.load(Ordering::SeqCst)
+    }
+
+    fn state(&self) -> ServiceState {
+        self.lifecycle.state()
     }
 }
 
-impl_async_service_lifecycle!(TestService);
-
-#[tokio::test]
-async fn execute_start_runs_future_and_marks_service_running() {
-    let service = TestService::new(ServiceState::Stopped);
-    let started = Arc::new(AtomicBool::new(false));
-    let started_in_future = Arc::clone(&started);
-
-    service
-        .execute_start(async move {
-            started_in_future.store(true, Ordering::SeqCst);
-            Result::<()>::Ok(())
-        })
-        .await
-        .unwrap();
-
-    assert!(started.load(Ordering::SeqCst));
-    assert_eq!(service.state.get(), ServiceState::Running);
+struct DefaultStopService {
+    lifecycle: AsyncServiceLifecycleCore,
 }
 
-#[tokio::test]
-async fn execute_start_is_noop_when_service_is_already_active() {
-    let service = TestService::new(ServiceState::Running);
-    let polled = Arc::new(AtomicBool::new(false));
-    let polled_in_future = Arc::clone(&polled);
+impl AsyncServiceLifecycle for DefaultStopService {
+    fn lifecycle(&self) -> &AsyncServiceLifecycleCore {
+        &self.lifecycle
+    }
 
-    service
-        .execute_start(async move {
-            polled_in_future.store(true, Ordering::SeqCst);
-            Result::<()>::Ok(())
-        })
-        .await
-        .unwrap();
-
-    assert!(!polled.load(Ordering::SeqCst));
-    assert_eq!(service.state.get(), ServiceState::Running);
+    fn on_start(self: &Arc<Self>, _: &AsyncServiceTasks) -> impl Future<Output = Result<()>> + Send {
+        ready(Ok(()))
+    }
 }
 
-#[tokio::test]
-async fn execute_start_failure_restores_stopped_and_clears_tasks() {
-    let service = TestService::new(ServiceState::Stopped);
-
-    service.task_manager.spawn_with_token(async |cancel_token| {
-        cancel_token.cancelled().await;
-    });
-
-    let error = service
-        .execute_start(async { Result::<()>::Err(anyhow!("startup failed")) })
-        .await
-        .unwrap_err();
-
-    assert_eq!(error.to_string(), "startup failed");
-    assert_eq!(service.state.get(), ServiceState::Stopped);
-    assert!(service.task_manager.is_empty());
-    assert!(service.cleanup_called.load(Ordering::SeqCst));
-}
-
-#[tokio::test]
-async fn execute_start_failure_marks_cleanup_failed_when_rollback_fails() {
-    let service = TestService::new(ServiceState::Stopped);
-    service.cleanup_should_fail.store(true, Ordering::SeqCst);
-
-    let error = service
-        .execute_start(async { Result::<()>::Err(anyhow!("startup failed")) })
-        .await
-        .unwrap_err();
-
-    assert_eq!(error.to_string(), "startup failed");
-    assert_eq!(service.state.get(), ServiceState::CleanupFailed);
-    assert!(service.cleanup_called.load(Ordering::SeqCst));
-}
-
-#[tokio::test]
-async fn execute_start_is_rejected_after_cleanup_failed() {
-    let service = TestService::new(ServiceState::CleanupFailed);
-
-    let error = service.execute_start(async { Result::<()>::Ok(()) }).await.unwrap_err();
-
+// Functions
+fn assert_stop_timed_out(error: &anyhow::Error) {
+    assert_eq!(error.downcast_ref::<StopTimedOut>().unwrap().timeout, SHORT);
     assert_eq!(
         error.to_string(),
-        "cannot start service after cleanup failed; retry cleanup first"
+        format!("service did not stop within {SHORT:?}; stop it again to retry")
     );
 }
 
+fn flag(value: &AtomicBool) -> bool {
+    value.load(Ordering::SeqCst)
+}
+
+fn set(value: &AtomicBool, enabled: bool) {
+    value.store(enabled, Ordering::SeqCst);
+}
+
+// Tests
 #[tokio::test]
-async fn execute_stop_cancels_tasks_runs_cleanup_and_marks_service_stopped() {
-    let service = TestService::new(ServiceState::Running);
+async fn start_runs_on_start_once_and_marks_the_service_running() {
+    let service = Arc::new(TestService::default());
 
-    service.task_manager.spawn_with_token(async |cancel_token| {
-        cancel_token.cancelled().await;
-    });
+    service.start().await.unwrap();
+    service.start().await.unwrap();
 
-    service.execute_stop().await.unwrap();
-
-    assert!(service.cleanup_called.load(Ordering::SeqCst));
-    assert_eq!(service.state.get(), ServiceState::Stopped);
-    assert!(service.task_manager.is_empty());
+    assert_eq!(service.on_start_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(service.state(), ServiceState::Running);
 }
 
 #[tokio::test]
-async fn execute_stop_runs_cleanup_only_after_tasks_exit() {
-    let service = TestService::new(ServiceState::Running);
-    let task_exited = Arc::clone(&service.task_exited);
-    service.task_manager.spawn_with_token(async move |cancel_token| {
-        cancel_token.cancelled().await;
-        // Simulate a task that needs another poll to finish shutting down.
+async fn failed_start_rolls_back_after_tasks_exit_and_keeps_the_start_error() {
+    let service = Arc::new(TestService::default());
+    set(&service.spawn_cooperative_task, true);
+    set(&service.start_should_fail, true);
+    set(&service.on_stop_should_fail, true);
+
+    let error = service.start().await.unwrap_err();
+
+    assert_eq!(error.to_string(), "startup failed");
+    assert_eq!(service.state(), ServiceState::Stopped);
+    assert_eq!(service.on_stop_calls(), 1);
+    assert!(flag(&service.on_stop_saw_task_exited));
+}
+
+#[tokio::test]
+async fn stop_runs_on_stop_after_tasks_exit_and_is_a_noop_once_stopped() {
+    let service = Arc::new(TestService::default());
+    set(&service.spawn_cooperative_task, true);
+    service.start().await.unwrap();
+
+    service.stop().await.unwrap();
+    service.stop().await.unwrap();
+
+    assert_eq!(service.on_stop_calls(), 1);
+    assert!(flag(&service.on_stop_saw_task_exited));
+    assert_eq!(service.state(), ServiceState::Stopped);
+}
+
+#[tokio::test]
+async fn cancelling_the_parent_interrupts_a_start_in_progress() {
+    let parent = CancellationToken::new();
+    let service = Arc::new(TestService {
+        lifecycle: AsyncServiceLifecycleCore::with_parent(&parent),
+        ..TestService::default()
+    });
+
+    set(&service.start_blocks_until_cancelled, true);
+    let starting_service = Arc::clone(&service);
+    let start = tokio::spawn(async move { starting_service.start().await });
+    while service.state() != ServiceState::Starting {
         tokio::task::yield_now().await;
-        task_exited.store(true, Ordering::SeqCst);
+    }
+
+    parent.cancel();
+    let error = timeout(COMPLETION_TIMEOUT, start).await.unwrap().unwrap().unwrap_err();
+
+    assert_eq!(error.to_string(), "service start was cancelled");
+    assert_eq!(service.state(), ServiceState::Stopped);
+    assert_eq!(service.on_stop_calls(), 1);
+}
+
+#[tokio::test]
+async fn cancelled_parent_rejects_starts_while_running_and_after_stopping() {
+    let parent = CancellationToken::new();
+    let service = Arc::new(DefaultStopService {
+        lifecycle: AsyncServiceLifecycleCore::with_parent(&parent),
     });
 
-    service.execute_stop().await.unwrap();
+    service.start().await.unwrap();
+    parent.cancel();
 
-    assert!(service.cleanup_saw_task_exited.load(Ordering::SeqCst));
+    let error = service.start().await.unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "service run was cancelled by its parent; stop it first"
+    );
+
+    service.stop().await.unwrap();
+    let error = service.start().await.unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "cannot start service after its parent token was cancelled"
+    );
+    assert_eq!(service.lifecycle.state(), ServiceState::Stopped);
 }
 
 #[tokio::test]
-async fn execute_stop_is_noop_when_service_is_already_stopped() {
-    let service = TestService::new(ServiceState::Stopped);
+async fn dropped_start_requires_a_stop_and_the_restart_gets_live_tokens() {
+    let service = Arc::new(TestService::default());
+    set(&service.start_blocks_until_cancelled, true);
 
-    service.execute_stop().await.unwrap();
+    assert!(timeout(SHORT, service.start()).await.is_err());
+    assert_eq!(service.state(), ServiceState::Stopping);
+    assert!(service.last_token().is_cancelled());
+    assert_eq!(
+        service.start().await.unwrap_err().to_string(),
+        "cannot start service before its previous run is stopped; stop it first"
+    );
 
-    assert!(!service.cleanup_called.load(Ordering::SeqCst));
-    assert_eq!(service.state.get(), ServiceState::Stopped);
+    service.stop().await.unwrap();
+    assert_eq!(service.on_stop_calls(), 1);
+
+    set(&service.start_blocks_until_cancelled, false);
+    service.start().await.unwrap();
+    assert_eq!(service.state(), ServiceState::Running);
+    assert!(flag(&service.token_live_at_start));
 }
 
 #[tokio::test]
-async fn execute_stop_marks_cleanup_failed_when_cleanup_fails() {
-    let service = TestService::new(ServiceState::Running);
-    service.cleanup_should_fail.store(true, Ordering::SeqCst);
+async fn stop_with_timeout_gives_up_on_stuck_tasks_and_the_next_stop_retries() {
+    let service = Arc::new(TestService::default());
+    set(&service.spawn_stuck_task, true);
+    service.start().await.unwrap();
 
-    let error = service.execute_stop().await.unwrap_err();
+    let error = service.stop_with_timeout(SHORT).await.unwrap_err();
+
+    assert_stop_timed_out(&error);
+    assert_eq!(service.state(), ServiceState::Stopping);
+    assert_eq!(service.on_stop_calls(), 0);
+
+    service.abort_stuck_task();
+    service.stop().await.unwrap();
+    assert_eq!(service.state(), ServiceState::Stopped);
+    assert_eq!(service.on_stop_calls(), 1);
+}
+
+#[tokio::test]
+async fn stop_with_timeout_covers_waiting_for_a_start_in_progress() {
+    let service = Arc::new(TestService::default());
+    set(&service.start_blocks_until_cancelled, true);
+    let starting_service = Arc::clone(&service);
+    let start = tokio::spawn(async move { starting_service.start().await });
+    while service.state() != ServiceState::Starting {
+        tokio::task::yield_now().await;
+    }
+
+    assert_stop_timed_out(&service.stop_with_timeout(SHORT).await.unwrap_err());
+    assert_eq!(service.state(), ServiceState::Starting);
+
+    start.abort();
+    let _ = start.await;
+    service.stop().await.unwrap();
+    assert_eq!(service.state(), ServiceState::Stopped);
+}
+
+#[tokio::test]
+async fn on_stop_interrupted_by_a_timeout_runs_again_on_the_next_stop() {
+    let service = Arc::new(TestService::default());
+    service.start().await.unwrap();
+    set(&service.on_stop_blocks, true);
+
+    assert_stop_timed_out(&service.stop_with_timeout(SHORT).await.unwrap_err());
+    assert_eq!(service.state(), ServiceState::Stopping);
+
+    set(&service.on_stop_blocks, false);
+    service.stop().await.unwrap();
+    assert_eq!(service.on_stop_calls(), 2);
+    assert_eq!(service.state(), ServiceState::Stopped);
+}
+
+#[tokio::test]
+async fn failed_on_stop_reports_the_error_and_allows_a_restart() {
+    let service = Arc::new(TestService::default());
+    set(&service.on_stop_should_fail, true);
+    service.start().await.unwrap();
+
+    assert_eq!(service.stop().await.unwrap_err().to_string(), "cleanup failed");
+    assert_eq!(service.state(), ServiceState::Stopped);
+
+    service.start().await.unwrap();
+    assert_eq!(service.state(), ServiceState::Running);
+}
+
+#[tokio::test]
+async fn stop_with_timeout_reports_a_failing_on_stop() {
+    let service = Arc::new(TestService::default());
+    set(&service.on_stop_should_fail, true);
+    service.start().await.unwrap();
+
+    let error = service.stop_with_timeout(COMPLETION_TIMEOUT).await.unwrap_err();
 
     assert_eq!(error.to_string(), "cleanup failed");
-    assert_eq!(service.state.get(), ServiceState::CleanupFailed);
+    assert!(!error.is::<StopTimedOut>());
+    assert_eq!(service.state(), ServiceState::Stopped);
 }
 
 #[tokio::test]
-async fn execute_stop_retries_cleanup_after_cleanup_failed() {
-    let service = TestService::new(ServiceState::CleanupFailed);
+async fn stop_during_a_start_waits_for_it_and_then_stops_the_run() {
+    let service = Arc::new(TestService::default());
+    set(&service.start_waits_for_gate, true);
+    let starting_service = Arc::clone(&service);
+    let start = tokio::spawn(async move { starting_service.start().await });
+    while service.state() != ServiceState::Starting {
+        tokio::task::yield_now().await;
+    }
 
-    service.execute_stop().await.unwrap();
+    let mut stop = std::pin::pin!(service.stop());
+    assert!(timeout(SHORT, &mut stop).await.is_err());
+    assert_eq!(service.state(), ServiceState::Starting);
 
-    assert!(service.cleanup_called.load(Ordering::SeqCst));
-    assert_eq!(service.state.get(), ServiceState::Stopped);
+    service.start_gate.cancel();
+    timeout(COMPLETION_TIMEOUT, start).await.unwrap().unwrap().unwrap();
+    timeout(COMPLETION_TIMEOUT, stop).await.unwrap().unwrap();
+
+    assert_eq!(service.state(), ServiceState::Stopped);
+    assert_eq!(service.on_stop_calls(), 1);
+    assert!(service.last_token().is_cancelled());
 }
 
 #[tokio::test]
-async fn restart_after_stop_hands_out_live_tokens() {
-    let service = TestService::new(ServiceState::Stopped);
-    service.execute_start(async { Result::<()>::Ok(()) }).await.unwrap();
-    service.execute_stop().await.unwrap();
+async fn spawning_is_rejected_once_the_run_begins_stopping() {
+    let service = Arc::new(TestService::default());
+    set(&service.spawn_cooperative_task, true);
+    service.start().await.unwrap();
+    let stale_tasks = service.tasks.lock().unwrap().clone().unwrap();
 
-    let token_cancelled = Arc::new(AtomicBool::new(true));
-    let reported_token_cancelled = Arc::clone(&token_cancelled);
-    service
-        .execute_start(async {
-            service.task_manager.spawn_with_token(async move |cancel_token| {
-                reported_token_cancelled.store(cancel_token.is_cancelled(), Ordering::SeqCst);
-            });
+    service.stop().await.unwrap();
 
-            Result::<()>::Ok(())
-        })
-        .await
-        .unwrap();
-
-    service.task_manager.wait().await;
-    assert!(!token_cancelled.load(Ordering::SeqCst));
-}
-
-#[tokio::test]
-async fn cancelled_start_requires_cleanup_before_restart() {
-    let service = TestService::new(ServiceState::Stopped);
-
-    assert!(
-        timeout(CANCEL_AFTER, service.execute_start(pending::<Result<()>>()))
-            .await
-            .is_err()
+    assert!(flag(&service.stopping_spawn_rejected));
+    let error = stale_tasks.spawn(ready(())).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "cannot spawn into a service run that is stopping or stopped"
     );
 
-    assert_eq!(service.state.get(), ServiceState::CleanupFailed);
-    assert!(service.execute_start(async { Result::<()>::Ok(()) }).await.is_err());
-
-    service.execute_stop().await.unwrap();
-    assert!(service.cleanup_called.load(Ordering::SeqCst));
-    assert_eq!(service.state.get(), ServiceState::Stopped);
-
-    service.execute_start(async { Result::<()>::Ok(()) }).await.unwrap();
-    assert_eq!(service.state.get(), ServiceState::Running);
-}
-
-#[tokio::test]
-async fn cancelled_stop_lets_the_next_stop_retry_cleanup() {
-    let service = TestService::new(ServiceState::Running);
-
-    // A task without a cancel token keeps the stop waiting until it is aborted.
-    let stuck_task = service.task_manager.spawn(pending::<()>());
-
-    assert!(timeout(CANCEL_AFTER, service.execute_stop()).await.is_err());
-    assert_eq!(service.state.get(), ServiceState::CleanupFailed);
-
-    stuck_task.abort();
-    service.execute_stop().await.unwrap();
-
-    assert_eq!(service.state.get(), ServiceState::Stopped);
-    assert!(service.task_manager.is_empty());
+    service.start().await.unwrap();
+    let live_tasks = service.tasks.lock().unwrap().clone().unwrap();
+    assert!(live_tasks.spawn(ready(())).is_ok());
 }
