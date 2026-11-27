@@ -33,20 +33,21 @@ thread_local! {
 
 // Structs
 
-/// Formats `YYYY-MM-DD HH:MM:SS.ffffff` in the local offset captured at initialization.
+/// Formats `YYYY-MM-DD HH:MM:SS.ffffff` in local time.
 ///
-/// The second-resolution prefix is cached per thread and only re-formatted when the second changes.
-/// The cache is not keyed by offset because the global subscriber, and therefore the timer, can only
-/// be installed once per process.
+/// The second-resolution prefix is cached per thread, and the local offset is looked up again
+/// whenever that prefix is rebuilt, so daylight saving changes apply within a second without a
+/// system lookup per event. A changed system time zone is only picked up after a restart.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct LoggerTimer {
-    offset: UtcOffset,
+    /// Used when a lookup fails.
+    fallback_offset: UtcOffset,
 }
 
 impl LoggerTimer {
     pub(super) fn new() -> Self {
         Self {
-            offset: UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC),
+            fallback_offset: UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC),
         }
     }
 }
@@ -59,11 +60,9 @@ impl FormatTime for LoggerTimer {
         SECONDS_CACHE.with_borrow_mut(|cache| {
             if cache.unix_seconds != Some(unix_seconds) {
                 let timestamp = i64::try_from(unix_seconds).map_err(|_| fmt::Error)?;
-                let prefix = OffsetDateTime::from_unix_timestamp(timestamp)
-                    .map_err(|_| fmt::Error)?
-                    .to_offset(self.offset)
-                    .format(SECONDS_FORMAT)
-                    .map_err(|_| fmt::Error)?;
+                let utc = OffsetDateTime::from_unix_timestamp(timestamp).map_err(|_| fmt::Error)?;
+                let offset = UtcOffset::local_offset_at(utc).unwrap_or(self.fallback_offset);
+                let prefix = utc.to_offset(offset).format(SECONDS_FORMAT).map_err(|_| fmt::Error)?;
 
                 cache.prefix.clear();
                 cache.prefix.push_str(&prefix);
