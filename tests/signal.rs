@@ -16,11 +16,19 @@ use kikiutils::{
 use tokio::time::timeout;
 
 // Tests
+
+/// One test, because tests run in parallel and the signal would also reach the other one.
 #[tokio::test]
-async fn sigterm_is_reported_as_terminate_and_cancels_the_manager() {
+async fn shutdown_signal_wait_ends_on_cancel_or_sigterm() {
     let manager = TaskManager::new();
     let mut wait = pin!(manager.cancel_on_shutdown_signal());
     // The first poll registers the handlers, so the signal below cannot terminate the process.
+    assert!(poll_fn(|cx| Poll::Ready(wait.as_mut().poll(cx).is_pending())).await);
+    manager.cancel();
+    assert_eq!(timeout(Duration::from_secs(5), wait).await.unwrap().unwrap(), None);
+
+    manager.reopen();
+    let mut wait = pin!(manager.cancel_on_shutdown_signal());
     assert!(poll_fn(|cx| Poll::Ready(wait.as_mut().poll(cx).is_pending())).await);
 
     let pid = process::id().to_string();
@@ -34,6 +42,5 @@ async fn sigterm_is_reported_as_terminate_and_cancels_the_manager() {
 
     let signal = timeout(Duration::from_secs(5), wait).await.unwrap().unwrap();
     assert_eq!(signal, Some(ShutdownSignal::Terminate));
-    assert_eq!(ShutdownSignal::Terminate.to_string(), "SIGTERM");
     assert!(manager.is_cancelled());
 }

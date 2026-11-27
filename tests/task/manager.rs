@@ -116,16 +116,26 @@ async fn clones_share_tasks_and_tokens() {
     assert!(clone.is_empty());
 }
 
-#[cfg(feature = "signal")]
 #[tokio::test]
-async fn shutdown_signal_wait_ends_when_the_manager_is_cancelled() {
+async fn critical_task_cancels_the_manager_when_it_returns_or_panics() {
     let manager = TaskManager::new();
-    let waiting_manager = manager.clone();
-    let wait = tokio::task::spawn(async move { waiting_manager.cancel_on_shutdown_signal().await });
-    tokio::task::yield_now().await;
+    let other_task = manager.spawn_with_token(async |cancel_token| cancel_token.cancelled().await);
+    manager.spawn_critical(async |_| ());
 
-    manager.cancel();
-    assert_eq!(timeout(COMPLETION_TIMEOUT, wait).await.unwrap().unwrap().unwrap(), None);
+    timeout(COMPLETION_TIMEOUT, other_task).await.unwrap().unwrap();
+    assert!(manager.is_cancelled());
+
+    manager.reopen();
+    let critical = manager.spawn_critical(async |_| panic!("critical task failed"));
+    assert!(
+        timeout(COMPLETION_TIMEOUT, critical)
+            .await
+            .unwrap()
+            .unwrap_err()
+            .is_panic()
+    );
+
+    assert!(manager.is_cancelled());
 }
 
 #[tokio::test]

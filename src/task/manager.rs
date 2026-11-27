@@ -54,12 +54,10 @@ impl TaskManager {
         self.root().cancel();
     }
 
-    /// Waits until the manager is cancelled or the process receives a shutdown signal, see
-    /// [`wait_for_shutdown_signal`](crate::signal::wait_for_shutdown_signal), and cancels it on a
-    /// signal. Returns the signal, or `None` if the manager was cancelled otherwise.
-    ///
-    /// On Unix, Tokio keeps the handlers registered until the process exits, so once this returns
-    /// these signals no longer terminate the process and are ignored unless something else listens.
+    /// Waits until the manager is cancelled or the process receives a shutdown signal, and cancels it
+    /// on a signal. Returns the signal, or `None` if the manager was cancelled otherwise. See
+    /// [`wait_for_shutdown_signal`](crate::signal::wait_for_shutdown_signal) for how the handlers
+    /// behave afterwards.
     #[cfg(feature = "signal")]
     pub async fn cancel_on_shutdown_signal(&self) -> std::io::Result<Option<crate::signal::ShutdownSignal>> {
         let root = self.root().clone();
@@ -122,6 +120,24 @@ impl TaskManager {
         F::Output: Send + 'static,
     {
         self.tracker.spawn(future)
+    }
+
+    /// Like [`spawn_with_token`](Self::spawn_with_token), but cancels the manager once the task ends
+    /// for any reason, including returning early, panicking or being aborted. Tasks that ignore their
+    /// token, or were spawned without one, keep running.
+    pub fn spawn_critical<F, Fut>(&self, f: F) -> tokio::task::JoinHandle<Fut::Output>
+    where
+        F: FnOnce(CancellationToken) -> Fut,
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
+    {
+        let root = self.root().clone();
+        let future = f(root.child_token());
+        let cancel_on_exit = root.drop_guard();
+        self.spawn(async move {
+            let _cancel_on_exit = cancel_on_exit;
+            future.await
+        })
     }
 
     pub fn spawn_with_token<F, Fut>(&self, f: F) -> tokio::task::JoinHandle<Fut::Output>
