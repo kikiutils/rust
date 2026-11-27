@@ -2,7 +2,6 @@ use std::fmt;
 
 use anyhow::{
     Context,
-    Ok,
     Result,
     ensure,
 };
@@ -54,11 +53,8 @@ impl<'writer> FormatFields<'writer> for FileFields {
     }
 }
 
-/// Keeps non-blocking logger workers alive and provides explicit flush/shutdown controls.
-///
-/// Keep this guard for as long as logging should remain active. Dropping the guard flushes and
-/// shuts down background workers, but drop cannot report shutdown errors; call [`LoggerGuard::shutdown`]
-/// when shutdown failures should be surfaced.
+/// Dropping the guard flushes and shuts down background workers, but drop cannot report shutdown
+/// errors; call [`LoggerGuard::shutdown`] when shutdown failures should be surfaced.
 #[derive(Debug)]
 pub struct LoggerGuard {
     workers: Vec<LoggerWorkerGuard>,
@@ -88,7 +84,6 @@ impl LoggerGuard {
         Ok(())
     }
 
-    /// Flushes queued log messages, stops background workers, and reports shutdown errors.
     pub fn shutdown(mut self) -> Result<()> {
         for worker in &mut self.workers {
             worker.shutdown()?;
@@ -135,7 +130,7 @@ pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
         .console_output
         .map(|console_options| {
             let filter = parse_filter(&console_options.filter).context("invalid console log filter")?;
-            Ok((console_options, filter))
+            Ok::<_, anyhow::Error>((console_options, filter))
         })
         .transpose()?;
 
@@ -143,7 +138,7 @@ pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
         .file_output
         .map(|file_options| {
             let filter = parse_filter(&file_options.filter).context("invalid file log filter")?;
-            Ok((file_options, filter))
+            Ok::<_, anyhow::Error>((file_options, filter))
         })
         .transpose()?;
 

@@ -1,7 +1,6 @@
 use std::{
     cell::RefCell,
     fmt,
-    str::from_utf8,
     time::{
         SystemTime,
         UNIX_EPOCH,
@@ -75,14 +74,7 @@ impl FormatTime for LoggerTimer {
             w.write_str(&cache.prefix)
         })?;
 
-        let mut micros = now.subsec_micros();
-        let mut digits = [b'0'; 6];
-        for digit in digits.iter_mut().rev() {
-            *digit = b'0' + u8::try_from(micros % 10).map_err(|_| fmt::Error)?;
-            micros /= 10;
-        }
-
-        w.write_str(from_utf8(&digits).map_err(|_| fmt::Error)?)
+        write!(w, "{:06}", now.subsec_micros())
     }
 }
 

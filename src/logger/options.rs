@@ -51,8 +51,6 @@ pub enum LoggerQueueFullPolicy {
 
 // Structs
 
-// Option structs are `#[non_exhaustive]` so fields can be added without breaking callers. Outside this
-// crate, start from `Default`/`new` and chain the `with_*` methods or assign the public fields.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct LoggerConsoleOutputOptions {

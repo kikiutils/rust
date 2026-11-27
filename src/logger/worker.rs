@@ -82,8 +82,6 @@ impl ConsoleSink {
     }
 }
 
-/// Routes lines to `{base_dir}/{target key}.log`, falling back to `_fallback.log` when a target file
-/// cannot be opened. Owned by a single worker thread, so no locking is needed.
 pub(super) struct FileSink {
     base_dir: Path,
     dirty_indexes: Vec<usize>,
