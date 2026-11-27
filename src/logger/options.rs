@@ -28,6 +28,8 @@ const ENV_LOGGER_FILE_ENABLED: &str = "LOGGER_FILE_ENABLED";
 const ENV_LOGGER_FILE_FILTER: &str = "LOGGER_FILE_FILTER";
 const ENV_LOGGER_QUEUE_CAPACITY: &str = "LOGGER_QUEUE_CAPACITY";
 const ENV_LOGGER_QUEUE_FULL_POLICY: &str = "LOGGER_QUEUE_FULL_POLICY";
+const ENV_LOGGER_TIMESTAMP_OFFSET: &str = "LOGGER_TIMESTAMP_OFFSET";
+const ENV_LOGGER_TIMESTAMP_TIME_ZONE: &str = "LOGGER_TIMESTAMP_TIME_ZONE";
 
 // Enums
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -54,6 +56,14 @@ pub enum LoggerQueueFullPolicy {
     Block,
     #[default]
     DropNewest,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum LoggerTimeZone {
+    #[default]
+    Local,
+    Utc,
 }
 
 // Structs
@@ -167,6 +177,7 @@ pub struct LoggerInitOptions {
     pub console_output: Option<LoggerConsoleOutputOptions>,
     pub file_output: Option<LoggerFileOutputOptions>,
     pub queue: LoggerQueueOptions,
+    pub timestamp: LoggerTimestampOptions,
 }
 
 impl Default for LoggerInitOptions {
@@ -175,6 +186,7 @@ impl Default for LoggerInitOptions {
             console_output: Some(LoggerConsoleOutputOptions::default()),
             file_output: None,
             queue: LoggerQueueOptions::default(),
+            timestamp: LoggerTimestampOptions::default(),
         }
     }
 }
@@ -201,6 +213,12 @@ impl LoggerInitOptions {
     }
 
     #[must_use]
+    pub fn with_timestamp(mut self, timestamp: LoggerTimestampOptions) -> Self {
+        self.timestamp = timestamp;
+        self
+    }
+
+    #[must_use]
     pub fn without_console_output(mut self) -> Self {
         self.console_output = None;
         self
@@ -219,11 +237,16 @@ impl LoggerInitOptions {
     /// - `LOGGER_CONSOLE_FILTER`: console filter directives, overrides `RUST_LOG`
     /// - `LOGGER_CONSOLE_STREAM`: `stdout` or `stderr`
     /// - `LOGGER_CONSOLE_TARGET`
-    /// - `LOGGER_FILE_DIR`: required when `LOGGER_FILE_ENABLED` is true
-    /// - `LOGGER_FILE_ENABLED`
+    /// - `LOGGER_FILE_DIR`: required for file output
+    /// - `LOGGER_FILE_ENABLED`: defaults to true when `LOGGER_FILE_DIR` is set
     /// - `LOGGER_FILE_FILTER`: file filter directives, overrides `RUST_LOG`
     /// - `LOGGER_QUEUE_CAPACITY`: a positive integer
     /// - `LOGGER_QUEUE_FULL_POLICY`: `block` or `drop_newest`
+    /// - `LOGGER_TIMESTAMP_OFFSET`: a boolean
+    /// - `LOGGER_TIMESTAMP_TIME_ZONE`: `local` or `utc`
+    ///
+    /// Booleans are `1`, `true`, `yes`, `y`, `on` or `0`, `false`, `no`, `n`, `off`. Values are trimmed and
+    /// case-insensitive, and blank values count as unset.
     ///
     /// Filter directives are validated by [`init_logger`](super::init_logger).
     pub fn from_env() -> Result<Self> {
@@ -263,7 +286,7 @@ impl LoggerInitOptions {
             None
         };
 
-        let file_output = if env.bool(ENV_LOGGER_FILE_ENABLED, false)? {
+        let file_output = if env.bool(ENV_LOGGER_FILE_ENABLED, env.value(ENV_LOGGER_FILE_DIR).is_some())? {
             let Some(base_dir) = env.value(ENV_LOGGER_FILE_DIR) else {
                 bail!("{ENV_LOGGER_FILE_DIR} is required when file logging is enabled");
             };
@@ -293,7 +316,39 @@ impl LoggerInitOptions {
                     parse_queue_full_policy,
                 )?,
             },
+            timestamp: LoggerTimestampOptions {
+                include_offset: env.bool(ENV_LOGGER_TIMESTAMP_OFFSET, false)?,
+                time_zone: env.parse(
+                    ENV_LOGGER_TIMESTAMP_TIME_ZONE,
+                    "one of local, utc",
+                    LoggerTimeZone::default(),
+                    parse_time_zone,
+                )?,
+            },
         })
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct LoggerTimestampOptions {
+    /// Appends the UTC offset, e.g. `+08:00`, right after the microseconds.
+    pub include_offset: bool,
+    pub time_zone: LoggerTimeZone,
+}
+
+impl LoggerTimestampOptions {
+    // Public methods
+    #[must_use]
+    pub fn with_include_offset(mut self, include_offset: bool) -> Self {
+        self.include_offset = include_offset;
+        self
+    }
+
+    #[must_use]
+    pub fn with_time_zone(mut self, time_zone: LoggerTimeZone) -> Self {
+        self.time_zone = time_zone;
+        self
     }
 }
 
@@ -355,6 +410,14 @@ fn parse_queue_full_policy(value: &str) -> Option<LoggerQueueFullPolicy> {
     match value {
         "block" => Some(LoggerQueueFullPolicy::Block),
         "drop_newest" => Some(LoggerQueueFullPolicy::DropNewest),
+        _ => None,
+    }
+}
+
+fn parse_time_zone(value: &str) -> Option<LoggerTimeZone> {
+    match value {
+        "local" => Some(LoggerTimeZone::Local),
+        "utc" => Some(LoggerTimeZone::Utc),
         _ => None,
     }
 }
@@ -477,8 +540,53 @@ mod tests {
             assert_eq!(options.queue.full_policy, expected, "{value:?}");
         }
 
+        for (value, expected) in [
+            ("local", LoggerTimeZone::Local),
+            ("  UtC  ", LoggerTimeZone::Utc),
+            ("  ", LoggerTimeZone::default()),
+        ] {
+            let options = from_pairs(&[(ENV_LOGGER_TIMESTAMP_TIME_ZONE, value)])?;
+            assert_eq!(options.timestamp.time_zone, expected, "{value:?}");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn from_env_parses_toggles_and_queue_capacity() -> Result<()> {
+        let options = from_pairs(&[(ENV_LOGGER_CONSOLE_ENABLED, "false")])?;
+        assert!(options.console_output.is_none());
+
+        let options = from_pairs(&[(ENV_LOGGER_CONSOLE_TARGET, "false")])?;
+        assert_eq!(
+            options.console_output.map(|console| console.include_target),
+            Some(false)
+        );
+
+        let options = from_pairs(&[(ENV_LOGGER_QUEUE_CAPACITY, " 256 ")])?;
+        assert_eq!(options.queue.capacity.get(), 256);
+
+        let options = from_pairs(&[(ENV_LOGGER_TIMESTAMP_OFFSET, "yes")])?;
+        assert!(options.timestamp.include_offset);
+        assert_eq!(options.timestamp.time_zone, LoggerTimeZone::Local);
+
         let options = from_pairs(&[])?;
-        assert_eq!(options.queue.full_policy, LoggerQueueFullPolicy::default());
+        assert!(!options.timestamp.include_offset);
+
+        Ok(())
+    }
+
+    #[test]
+    fn from_env_enables_file_output_when_dir_is_set() -> Result<()> {
+        let options = from_pairs(&[(ENV_LOGGER_FILE_DIR, "env-logs")])?;
+        assert_eq!(options.file_output.map(|file| file.base_dir), Some(path!("env-logs")));
+
+        let options = from_pairs(&[(ENV_LOGGER_FILE_DIR, "env-logs"), (ENV_LOGGER_FILE_ENABLED, "false")])?;
+        assert!(options.file_output.is_none());
+
+        let options = from_pairs(&[(ENV_LOGGER_FILE_DIR, "  ")])?;
+        assert!(options.file_output.is_none());
+
         Ok(())
     }
 
@@ -491,5 +599,7 @@ mod tests {
         assert!(from_pairs(&[(ENV_LOGGER_QUEUE_CAPACITY, "0")]).is_err());
         assert!(from_pairs(&[(ENV_LOGGER_QUEUE_FULL_POLICY, "wait")]).is_err());
         assert!(from_pairs(&[(ENV_LOGGER_CONSOLE_ANSI, "sometimes")]).is_err());
+        assert!(from_pairs(&[(ENV_LOGGER_TIMESTAMP_TIME_ZONE, "gmt")]).is_err());
+        assert!(from_pairs(&[(ENV_LOGGER_TIMESTAMP_OFFSET, "maybe")]).is_err());
     }
 }

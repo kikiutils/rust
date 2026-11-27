@@ -25,8 +25,6 @@ pub(super) enum LoggerCommand {
 
 // Structs
 
-/// The fmt layer writes each event with one `write_all`, so `Vec::new()` costs a single exact-size
-/// allocation per event.
 #[derive(Debug)]
 pub(super) struct QueueMakeWriter {
     dropped: Arc<AtomicU64>,
@@ -70,7 +68,9 @@ impl QueueMakeWriter {
     }
 }
 
-/// Buffers one event and enqueues it on drop, so a multi-call `write_all` still produces one queue entry.
+/// Holds one event and enqueues it on drop, so each event is one queue entry even if it arrives in several
+/// writes. The fmt layer writes an event with a single `write_all`, so the buffer starts empty and takes one
+/// exact-size allocation.
 #[derive(Debug)]
 pub(super) struct QueueWriter<'a> {
     bytes: Vec<u8>,

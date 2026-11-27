@@ -37,6 +37,19 @@ use tracing::{
 #[test]
 fn init_logger_writes_filtered_events_to_target_files() -> Result<()> {
     let log_dir = unique_temp_dir();
+    let invalid = init_logger(
+        LoggerInitOptions::default()
+            .with_console_output(LoggerConsoleOutputOptions::default().with_filter("info,[invalid"))
+            .with_file_output(LoggerFileOutputOptions::new(log_dir.clone())),
+    );
+
+    assert!(
+        invalid.is_err_and(|error| error.to_string().starts_with("invalid console log filter")),
+        "an invalid console filter must fail init"
+    );
+
+    assert!(!log_dir.exists_sync()?);
+
     // The console enables only the span, probe and shared targets, so it formats span fields with ANSI
     // and prints just the shared event. The probe target is enabled on the console but not in the file,
     // and the shared target in both, which is the per-layer filter split tokio-rs/tracing#2519 needs.
@@ -101,9 +114,17 @@ fn init_logger_writes_filtered_events_to_target_files() -> Result<()> {
     );
 
     assert!(!(&log_dir / "logger_integration" / "muted.log").exists_sync()?);
-    assert_eq!(logger_guard.dropped_count(), 0);
 
+    event!(target: "logger_integration::shutdown", Level::INFO, "before shutdown");
+    assert_eq!(logger_guard.dropped_count(), 0);
     logger_guard.shutdown()?;
+
+    let shutdown = (&log_dir / "logger_integration" / "shutdown.log").read_to_string_sync()?;
+    assert!(
+        shutdown.ends_with(" INFO logger_integration::shutdown: before shutdown\n"),
+        "{shutdown:?}"
+    );
+
     log_dir.remove_dir_all_sync()?;
 
     Ok(())

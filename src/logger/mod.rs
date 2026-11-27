@@ -10,14 +10,19 @@ use std::{
 use anyhow::{
     Context,
     Result,
+    bail,
 };
 use tracing::{
     Event,
     Metadata,
     Subscriber,
+    dispatcher,
     level_filters::LevelFilter,
     span,
-    subscriber::Interest,
+    subscriber::{
+        Interest,
+        NoSubscriber,
+    },
 };
 use tracing_log::NormalizeEvent;
 use tracing_subscriber::{
@@ -65,7 +70,7 @@ use self::{
     },
 };
 
-type BoxedLayer = Box<dyn Layer<Registry> + Send + Sync + 'static>;
+type BoxedLayer<S> = Box<dyn Layer<S> + Send + Sync + 'static>;
 
 // Structs
 
@@ -197,45 +202,55 @@ impl LoggerGuard {
 
 // Functions
 
-/// Console output goes to stdout or stderr. File output is split by event target: `a::b::c` is
-/// written to `{base_dir}/a/b/c.log`, an empty target to `_default.log`, and targets whose file
-/// cannot be opened to `_fallback.log`.
+/// Builds the logger layer and spawns its workers without installing a subscriber.
+///
+/// The layer works in any subscriber built on [`Registry`], since its outputs use per-layer filters.
+/// Installing the subscriber is up to the caller: [`SubscriberInitExt::try_init`] also installs the `log` bridge, so
+/// events from the `log` crate keep reaching the logger, while `tracing::subscriber::set_global_default`
+/// does not.
 ///
 /// # Example
 ///
 /// ```no_run
 /// use kikiutils::logger::{
-///     init_logger,
+///     build_logger,
 ///     options::LoggerInitOptions,
+/// };
+/// use tracing_subscriber::{
+///     layer::SubscriberExt,
+///     util::SubscriberInitExt,
 /// };
 ///
 /// # fn main() -> anyhow::Result<()> {
-/// let logger_guard = init_logger(LoggerInitOptions::default())?;
+/// let options = LoggerInitOptions::from_env()?.without_console_output();
+/// let (logger_layer, logger_guard) = build_logger(options)?;
+/// tracing_subscriber::registry()
+///     .with(tracing_subscriber::fmt::layer().compact())
+///     .with(logger_layer)
+///     .try_init()?;
+///
 /// tracing::info!("application started");
 /// logger_guard.shutdown()?;
 /// # Ok(())
 /// # }
 /// ```
-pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
+pub fn build_logger<S>(options: LoggerInitOptions) -> Result<(Box<dyn Layer<S> + Send + Sync + 'static>, LoggerGuard)>
+where
+    S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+{
     // Parse every filter before spawning workers so invalid directives fail without side effects.
     let console = options
         .console_output
-        .map(|console_options| {
-            let filter = parse_filter(&console_options.filter).context("invalid console log filter")?;
-            Ok::<_, anyhow::Error>((console_options, filter))
-        })
+        .map(|console| parse_filter(&console.filter, "console").map(|filter| (console, filter)))
         .transpose()?;
 
     let file = options
         .file_output
-        .map(|file_options| {
-            let filter = parse_filter(&file_options.filter).context("invalid file log filter")?;
-            Ok::<_, anyhow::Error>((file_options, filter))
-        })
+        .map(|file| parse_filter(&file.filter, "file").map(|filter| (file, filter)))
         .transpose()?;
 
-    let timer = LoggerTimer::new();
-    let mut layers = Vec::<BoxedLayer>::new();
+    let timer = LoggerTimer::new(options.timestamp);
+    let mut layers = Vec::<BoxedLayer<S>>::new();
     let mut logger_guard = LoggerGuard { workers: Vec::new() };
 
     if let Some((console_options, filter)) = console {
@@ -273,18 +288,59 @@ pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
         );
     }
 
+    // An empty `Vec` layer disables every callsite, which would also silence the caller's other layers.
+    if layers.is_empty() {
+        return Ok((layer::Identity::new().boxed(), logger_guard));
+    }
+
+    Ok((layers.boxed(), logger_guard))
+}
+
+/// Builds the logger with [`build_logger`] and installs it as the global subscriber, together with the
+/// `log` bridge. Fails without creating directories or workers when a global subscriber is already set.
+///
+/// File output is split by event target: `a::b::c` is written to `{base_dir}/a/b/c.log`, an empty target
+/// to `_default.log`, and targets whose file cannot be opened to `_fallback.log`.
+///
+/// Each output reports the events it dropped because its queue was full with a `WARN kikiutils::logger`
+/// line written after its next batch: the console output writes it to its stream, the file output to
+/// `{base_dir}/kikiutils/logger.log`.
+///
+/// # Example
+///
+/// ```no_run
+/// use kikiutils::logger::{
+///     init_logger,
+///     options::LoggerInitOptions,
+/// };
+///
+/// # fn main() -> anyhow::Result<()> {
+/// let logger_guard = init_logger(LoggerInitOptions::default())?;
+/// tracing::info!("application started");
+/// logger_guard.shutdown()?;
+/// # Ok(())
+/// # }
+/// ```
+pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
+    // `tracing::dispatcher::has_been_set` also turns true after any scoped default, so ask for the default
+    // dispatcher instead; inside a scoped default this sees the scoped subscriber.
+    if dispatcher::get_default(|dispatch| !dispatch.is::<NoSubscriber>()) {
+        bail!("failed to initialize tracing subscriber: a global default subscriber is already set");
+    }
+
+    let (layer, logger_guard) = build_logger::<Registry>(options)?;
     registry()
-        .with(layers)
+        .with(layer)
         .try_init()
         .context("failed to initialize tracing subscriber")?;
 
     Ok(logger_guard)
 }
 
-fn parse_filter(directives: &str) -> Result<EnvFilter> {
+fn parse_filter(directives: &str, output: &str) -> Result<EnvFilter> {
     EnvFilter::builder()
         .parse(directives)
-        .with_context(|| format!("failed to parse filter directives: {directives}"))
+        .with_context(|| format!("invalid {output} log filter: {directives}"))
 }
 
 fn resolve_ansi(mode: LoggerAnsiMode, stream: LoggerConsoleStream) -> bool {
@@ -299,5 +355,44 @@ fn resolve_ansi(mode: LoggerAnsiMode, stream: LoggerConsoleStream) -> bool {
             is_terminal && env::var_os("NO_COLOR").is_none_or(|value| value.is_empty())
         },
         LoggerAnsiMode::Never => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{
+            AtomicUsize,
+            Ordering,
+        },
+    };
+
+    use tracing::Subscriber;
+    use tracing_subscriber::layer::Context;
+
+    use super::*;
+
+    struct CountingLayer(Arc<AtomicUsize>);
+
+    impl<S: Subscriber> Layer<S> for CountingLayer {
+        fn on_event(&self, _: &tracing::Event<'_>, _: Context<'_, S>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn logger_without_outputs_leaves_other_layers_working() {
+        let options = LoggerInitOptions::default()
+            .without_console_output()
+            .without_file_output();
+        let (logger_layer, logger_guard) = build_logger(options).unwrap();
+        let events = Arc::new(AtomicUsize::new(0));
+        let subscriber = registry().with(logger_layer).with(CountingLayer(Arc::clone(&events)));
+
+        tracing::subscriber::with_default(subscriber, || tracing::info!("reaches the other layer"));
+
+        assert_eq!(events.load(Ordering::SeqCst), 1);
+        logger_guard.shutdown().unwrap();
     }
 }

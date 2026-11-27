@@ -367,8 +367,20 @@ fn target_to_key(target: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        env,
+        time::{
+            SystemTime,
+            UNIX_EPOCH,
+        },
+    };
 
-    use super::*;
+    use pathkit::path;
+
+    use super::{
+        super::options::LoggerTimestampOptions,
+        *,
+    };
 
     struct RecordingSink(Arc<std::sync::Mutex<Vec<String>>>);
 
@@ -403,7 +415,7 @@ mod tests {
             DroppedNotifier {
                 dropped,
                 reported: 0,
-                timer: LoggerTimer::new(),
+                timer: LoggerTimer::new(LoggerTimestampOptions::default()),
             },
         );
 
@@ -414,6 +426,27 @@ mod tests {
             lines[0].ends_with("  WARN kikiutils::logger: dropped 3 log events because the queue was full\n"),
             "{lines:?}"
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn file_sink_routes_unopenable_targets_to_fallback() -> Result<()> {
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        let base_dir = path!(env::temp_dir()) / format!("kikiutils-logger-file-sink-{nanos}");
+        let mut sink = FileSink::new(base_dir.clone())?;
+
+        sink.write_event(b"x\0first\n");
+        // `x.log` is a file, so `x.log/y.log` cannot be created under it.
+        sink.write_event(b"x.log::y\0second\n");
+        sink.flush();
+
+        let routed = (&base_dir / "x.log").read_to_string_sync()?;
+        let fallback = (&base_dir / format!("{FALLBACK_LOG_KEY}.log")).read_to_string_sync()?;
+        base_dir.remove_dir_all_sync()?;
+
+        assert_eq!(routed, "first\n");
+        assert_eq!(fallback, "second\n");
 
         Ok(())
     }
