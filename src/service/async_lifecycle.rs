@@ -5,7 +5,6 @@ use std::{
     mem,
     sync::{
         Arc,
-        Mutex,
         MutexGuard,
         PoisonError,
     },
@@ -16,7 +15,6 @@ use anyhow::{
     Result,
     bail,
 };
-use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use super::state::ServiceState;
@@ -121,7 +119,7 @@ impl Phase {
 pub struct AsyncServiceLifecycleCore {
     lock: tokio::sync::Mutex<()>,
     parent: CancellationToken,
-    phase: Mutex<Phase>,
+    phase: std::sync::Mutex<Phase>,
 }
 
 impl Default for AsyncServiceLifecycleCore {
@@ -141,7 +139,7 @@ impl AsyncServiceLifecycleCore {
         Self {
             lock: tokio::sync::Mutex::new(()),
             parent: parent.clone(),
-            phase: Mutex::new(Phase::Stopped),
+            phase: std::sync::Mutex::new(Phase::Stopped),
         }
     }
 
@@ -172,17 +170,17 @@ impl AsyncServiceLifecycleCore {
 
 /// Clones spawn into the same run. Spawning fails with [`TasksClosed`] once the run begins stopping,
 /// so no task can start while the stop waits for the others or `on_stop` releases resources.
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct AsyncServiceTasks {
     manager: TaskManager,
-    open: Arc<Mutex<bool>>,
+    open: Arc<std::sync::Mutex<bool>>,
 }
 
 impl AsyncServiceTasks {
     fn new(parent: &CancellationToken) -> Self {
         Self {
             manager: TaskManager::with_parent(parent),
-            open: Arc::new(Mutex::new(true)),
+            open: Arc::new(std::sync::Mutex::new(true)),
         }
     }
 
@@ -191,7 +189,7 @@ impl AsyncServiceTasks {
         self.manager.is_cancelled()
     }
 
-    pub fn spawn<F>(&self, future: F) -> Result<JoinHandle<F::Output>, TasksClosed>
+    pub fn spawn<F>(&self, future: F) -> Result<tokio::task::JoinHandle<F::Output>, TasksClosed>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
@@ -206,7 +204,7 @@ impl AsyncServiceTasks {
     }
 
     /// `f` runs even if spawning then fails; the future it returns is dropped unpolled.
-    pub fn spawn_with_token<F, Fut>(&self, f: F) -> Result<JoinHandle<Fut::Output>, TasksClosed>
+    pub fn spawn_with_token<F, Fut>(&self, f: F) -> Result<tokio::task::JoinHandle<Fut::Output>, TasksClosed>
     where
         F: FnOnce(CancellationToken) -> Fut,
         Fut: Future + Send + 'static,
@@ -255,7 +253,7 @@ impl DroppedStartGuard<'_> {
 
 /// Returned by [`AsyncServiceLifecycleExt::stop_with_timeout`] inside the [`anyhow::Error`], so
 /// callers can tell a timeout apart from a failing `on_stop`.
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub struct StopTimedOut {
     pub timeout: Duration,
@@ -273,7 +271,7 @@ impl fmt::Display for StopTimedOut {
 
 impl Error for StopTimedOut {}
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct TasksClosed;
 

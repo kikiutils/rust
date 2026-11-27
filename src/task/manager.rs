@@ -2,17 +2,14 @@ use std::{
     future::Future,
     sync::{
         Arc,
-        Mutex,
         MutexGuard,
         PoisonError,
     },
     time::Duration,
 };
 
-use tokio::{
-    task::JoinHandle,
-    time::error::Elapsed,
-};
+use anyhow::Result;
+use tokio::time::error::Elapsed;
 use tokio_util::{
     sync::CancellationToken,
     task::TaskTracker,
@@ -26,12 +23,12 @@ use tokio_util::{
 ///
 /// Clones share the same tasks and tokens. Waiting from a task spawned by this manager never
 /// completes, because the manager waits for that task too.
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct TaskManager {
     /// Never cancelled unless it is the parent passed to [`with_parent`](Self::with_parent); every root
     /// is its child.
     base: CancellationToken,
-    root: Arc<Mutex<CancellationToken>>,
+    root: Arc<std::sync::Mutex<CancellationToken>>,
     tracker: TaskTracker,
 }
 
@@ -69,7 +66,7 @@ impl TaskManager {
     /// signals no longer terminate the process and are ignored unless something else listens; call
     /// this again after a `reopen`.
     #[cfg(feature = "signal")]
-    pub fn cancel_on_shutdown_signal(&self) -> JoinHandle<anyhow::Result<bool>> {
+    pub fn cancel_on_shutdown_signal(&self) -> tokio::task::JoinHandle<Result<bool>> {
         let root = self.root().clone();
         self.spawn(async move {
             tokio::select! {
@@ -126,7 +123,7 @@ impl TaskManager {
 
     /// The task gets no cancel signal, but [`wait`](Self::wait) and [`shutdown`](Self::shutdown) still
     /// wait for it.
-    pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
+    pub fn spawn<F>(&self, future: F) -> tokio::task::JoinHandle<F::Output>
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
@@ -134,7 +131,7 @@ impl TaskManager {
         self.tracker.spawn(future)
     }
 
-    pub fn spawn_with_token<F, Fut>(&self, f: F) -> JoinHandle<Fut::Output>
+    pub fn spawn_with_token<F, Fut>(&self, f: F) -> tokio::task::JoinHandle<Fut::Output>
     where
         F: FnOnce(CancellationToken) -> Fut,
         Fut: Future + Send + 'static,
@@ -164,7 +161,7 @@ impl TaskManager {
 
         Self {
             base,
-            root: Arc::new(Mutex::new(root)),
+            root: Arc::new(std::sync::Mutex::new(root)),
             tracker,
         }
     }

@@ -15,6 +15,7 @@ const DEFAULT_QUEUE_CAPACITY: NonZeroUsize = match NonZeroUsize::new(8192) {
     Some(capacity) => capacity,
     None => panic!("default queue capacity must be non-zero"),
 };
+
 const DEFAULT_FILTER: &str = "info";
 const ENV_LOG_FILTER: &str = "RUST_LOG";
 const ENV_LOGGER_CONSOLE_ANSI: &str = "LOGGER_CONSOLE_ANSI";

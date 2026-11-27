@@ -8,7 +8,6 @@ use std::{
     },
     sync::{
         Arc,
-        Mutex,
         atomic::{
             AtomicBool,
             AtomicUsize,
@@ -33,10 +32,7 @@ use kikiutils::service::{
     },
     state::ServiceState,
 };
-use tokio::{
-    task::JoinHandle,
-    time::timeout,
-};
+use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 // Constants/Statics
@@ -46,7 +42,7 @@ const SHORT: Duration = Duration::from_millis(20);
 // Structs
 #[derive(Default)]
 struct TestService {
-    last_token: Mutex<Option<CancellationToken>>,
+    last_token: std::sync::Mutex<Option<CancellationToken>>,
     lifecycle: AsyncServiceLifecycleCore,
     on_start_calls: AtomicUsize,
     on_stop_blocks: AtomicBool,
@@ -60,8 +56,8 @@ struct TestService {
     start_should_fail: AtomicBool,
     start_waits_for_gate: AtomicBool,
     stopping_spawn_rejected: Arc<AtomicBool>,
-    tasks: Mutex<Option<AsyncServiceTasks>>,
-    stuck_task: Mutex<Option<JoinHandle<()>>>,
+    tasks: std::sync::Mutex<Option<AsyncServiceTasks>>,
+    stuck_task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     task_exited: Arc<AtomicBool>,
     token_live_at_start: AtomicBool,
 }
@@ -229,7 +225,7 @@ async fn cancelling_the_parent_interrupts_a_start_in_progress() {
 
     set(&service.start_blocks_until_cancelled, true);
     let starting_service = Arc::clone(&service);
-    let start = tokio::spawn(async move { starting_service.start().await });
+    let start = tokio::task::spawn(async move { starting_service.start().await });
     while service.state() != ServiceState::Starting {
         tokio::task::yield_now().await;
     }
@@ -264,6 +260,7 @@ async fn cancelled_parent_rejects_starts_while_running_and_after_stopping() {
         error.to_string(),
         "cannot start service after its parent token was cancelled"
     );
+
     assert_eq!(service.lifecycle.state(), ServiceState::Stopped);
 }
 
@@ -312,7 +309,7 @@ async fn stop_with_timeout_covers_waiting_for_a_start_in_progress() {
     let service = Arc::new(TestService::default());
     set(&service.start_blocks_until_cancelled, true);
     let starting_service = Arc::clone(&service);
-    let start = tokio::spawn(async move { starting_service.start().await });
+    let start = tokio::task::spawn(async move { starting_service.start().await });
     while service.state() != ServiceState::Starting {
         tokio::task::yield_now().await;
     }
@@ -372,7 +369,7 @@ async fn stop_during_a_start_waits_for_it_and_then_stops_the_run() {
     let service = Arc::new(TestService::default());
     set(&service.start_waits_for_gate, true);
     let starting_service = Arc::clone(&service);
-    let start = tokio::spawn(async move { starting_service.start().await });
+    let start = tokio::task::spawn(async move { starting_service.start().await });
     while service.state() != ServiceState::Starting {
         tokio::task::yield_now().await;
     }

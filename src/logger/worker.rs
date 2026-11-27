@@ -118,6 +118,7 @@ impl LogSink for FileSink {
             separator.is_some(),
             "file events must be prefixed by TargetPrefixedFormat"
         );
+
         match separator {
             Some(separator) => self.write_line(&event[..separator], &event[separator + 1..]),
             None => self.write_line(b"", event),
