@@ -233,13 +233,19 @@ impl LoggerInitOptions {
     ///
     /// Filter directives are validated by [`init_logger`](super::init_logger).
     pub fn from_env() -> Result<Self> {
-        Self::from_lookup(|key| env::var(key).ok())
+        Self::from_env_with_default_filter(DEFAULT_FILTER)
+    }
+
+    /// Same as [`from_env`](Self::from_env), but every output uses `default_filter` instead of `info`
+    /// when `RUST_LOG` is unset.
+    pub fn from_env_with_default_filter(default_filter: &str) -> Result<Self> {
+        Self::from_lookup(|key| env::var(key).ok(), default_filter)
     }
 
     // Private methods
-    fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Self> {
+    fn from_lookup(lookup: impl Fn(&str) -> Option<String>, default_filter: &str) -> Result<Self> {
         let env = EnvReader(lookup);
-        let default_filter = env.value(ENV_LOG_FILTER).unwrap_or_else(|| DEFAULT_FILTER.to_owned());
+        let default_filter = env.value(ENV_LOG_FILTER).unwrap_or_else(|| default_filter.to_owned());
         let console_output = if env.bool(ENV_LOGGER_CONSOLE_ENABLED, true)? {
             Some(LoggerConsoleOutputOptions {
                 ansi: env.ansi_mode()?,
@@ -352,12 +358,19 @@ mod tests {
     use super::*;
 
     fn from_pairs(pairs: &[(&str, &str)]) -> Result<LoggerInitOptions> {
-        LoggerInitOptions::from_lookup(|key| {
-            pairs
-                .iter()
-                .find(|(pair_key, _)| *pair_key == key)
-                .map(|(_, value)| (*value).to_owned())
-        })
+        from_pairs_with_default_filter(pairs, DEFAULT_FILTER)
+    }
+
+    fn from_pairs_with_default_filter(pairs: &[(&str, &str)], default_filter: &str) -> Result<LoggerInitOptions> {
+        LoggerInitOptions::from_lookup(
+            |key| {
+                pairs
+                    .iter()
+                    .find(|(pair_key, _)| *pair_key == key)
+                    .map(|(_, value)| (*value).to_owned())
+            },
+            default_filter,
+        )
     }
 
     #[test]
@@ -391,6 +404,28 @@ mod tests {
         assert_eq!(console.filter, DEFAULT_FILTER);
         assert_eq!(console.stream, LoggerConsoleStream::Stdout);
         assert!(options.file_output.is_none());
+
+        let file_pairs = [
+            (ENV_LOGGER_FILE_ENABLED, "true"),
+            (ENV_LOGGER_FILE_BASE_DIR, "env-logs"),
+        ];
+        let options = from_pairs_with_default_filter(&file_pairs, "warn,app=info")?;
+        let console = options
+            .console_output
+            .ok_or_else(|| anyhow!("console output should be enabled"))?;
+
+        let file = options
+            .file_output
+            .ok_or_else(|| anyhow!("file output should be enabled"))?;
+
+        assert_eq!(console.filter, "warn,app=info");
+        assert_eq!(file.filter, "warn,app=info");
+
+        let options = from_pairs_with_default_filter(&[(ENV_LOG_FILTER, "debug")], "warn,app=info")?;
+        assert_eq!(
+            options.console_output.map(|console| console.filter).as_deref(),
+            Some("debug")
+        );
 
         Ok(())
     }
