@@ -1,4 +1,6 @@
 use std::{
+    error::Error,
+    fmt,
     marker::PhantomData,
     sync::atomic::{
         AtomicU8,
@@ -8,19 +10,50 @@ use std::{
 
 use anyhow::{
     Result,
-    anyhow,
     ensure,
 };
 
 // Structs
-#[derive(Debug)]
-pub struct AtomicEnumCell<T: Eq + Into<u8> + TryFrom<u8>> {
+
+/// `Into<u8>` and `TryFrom<u8>` must round-trip every value; otherwise [`AtomicEnumCell::get`] panics.
+pub struct AtomicEnumCell<T> {
     _marker: PhantomData<T>,
     inner: AtomicU8,
 }
 
-impl<T: Eq + Into<u8> + TryFrom<u8>> AtomicEnumCell<T> {
-    #[inline]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TransitionError<T> {
+    pub actual: T,
+    pub expected: T,
+    pub target: T,
+}
+
+impl<T: fmt::Debug> fmt::Display for TransitionError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "invalid transition {:?} -> {:?}: current value is {:?}",
+            self.expected, self.target, self.actual
+        )
+    }
+}
+
+impl<T: fmt::Debug> Error for TransitionError<T> {}
+
+impl<T: fmt::Debug + TryFrom<u8>> fmt::Debug for AtomicEnumCell<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let raw = self.inner.load(Ordering::SeqCst);
+        let mut tuple = f.debug_tuple("AtomicEnumCell");
+        match T::try_from(raw) {
+            Ok(value) => tuple.field(&value),
+            Err(_) => tuple.field(&raw),
+        };
+
+        tuple.finish()
+    }
+}
+
+impl<T: Copy + Eq + Into<u8> + TryFrom<u8>> AtomicEnumCell<T> {
     pub fn new(value: T) -> Self {
         Self {
             _marker: PhantomData,
@@ -29,44 +62,57 @@ impl<T: Eq + Into<u8> + TryFrom<u8>> AtomicEnumCell<T> {
     }
 
     // Public methods
-    #[inline]
-    #[allow(
-        clippy::needless_pass_by_value,
-        reason = "AtomicEnumCell stores enum-like values and consistently accepts state values by value."
-    )]
-    pub fn ensure<F: FnOnce(T) -> String>(&self, expected: T, message: F) -> Result<()> {
+    pub fn ensure<M, F>(&self, expected: T, message: F) -> Result<()>
+    where
+        M: fmt::Debug + fmt::Display + Send + Sync + 'static,
+        F: FnOnce(T) -> M,
+    {
         let value = self.get();
         ensure!(value == expected, message(value));
         Ok(())
     }
 
-    #[inline]
     pub fn get(&self) -> T {
-        #[allow(
-            clippy::expect_used,
-            reason = "AtomicEnumCell only writes values converted from T, so an invalid discriminant indicates a broken internal invariant."
-        )]
-        T::try_from(self.inner.load(Ordering::SeqCst))
-            .ok()
-            .expect("AtomicEnumCell contained an invalid enum discriminant")
+        Self::decode(self.inner.load(Ordering::SeqCst))
     }
 
-    #[inline]
     pub fn is(&self, value: T) -> bool {
         self.inner.load(Ordering::SeqCst) == value.into()
     }
 
-    #[inline]
     pub fn store(&self, value: T) {
         self.inner.store(value.into(), Ordering::SeqCst);
     }
 
-    #[inline]
-    pub fn try_transition(&self, from: T, to: T) -> Result<()> {
+    pub fn try_transition(&self, from: T, to: T) -> Result<(), TransitionError<T>> {
         self.inner
             .compare_exchange(from.into(), to.into(), Ordering::SeqCst, Ordering::SeqCst)
             .map(|_| ())
-            .map_err(|_| anyhow!("Failed to transition value"))
+            .map_err(|actual| TransitionError {
+                actual: Self::decode(actual),
+                expected: from,
+                target: to,
+            })
+    }
+
+    pub fn try_update<F: FnMut(T) -> Option<T>>(&self, mut f: F) -> Result<T, T> {
+        self.inner
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |raw| {
+                f(Self::decode(raw)).map(Into::into)
+            })
+            .map(Self::decode)
+            .map_err(Self::decode)
+    }
+
+    // Private methods
+    fn decode(raw: u8) -> T {
+        #[allow(
+            clippy::expect_used,
+            reason = "AtomicEnumCell only writes values converted from T, so an invalid discriminant indicates a broken internal invariant."
+        )]
+        T::try_from(raw)
+            .ok()
+            .expect("AtomicEnumCell contained an invalid enum discriminant")
     }
 }
 
@@ -74,7 +120,10 @@ impl<T: Eq + Into<u8> + TryFrom<u8>> AtomicEnumCell<T> {
 mod tests {
     use anyhow::Result;
 
-    use super::AtomicEnumCell;
+    use super::{
+        AtomicEnumCell,
+        TransitionError,
+    };
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum TestState {
@@ -118,45 +167,61 @@ mod tests {
 
         assert_eq!(cell.get(), TestState::Ready);
         assert!(cell.is(TestState::Ready));
+        assert_eq!(format!("{cell:?}"), "AtomicEnumCell(Ready)");
     }
 
     #[test]
-    fn ensure_returns_ok_for_expected_value() {
-        let cell = AtomicEnumCell::new(TestState::Ready);
-
-        let result = cell.ensure(TestState::Ready, |_| panic!("message must not be evaluated on success"));
-
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn ensure_uses_current_value_in_error_message() {
+    fn ensure_evaluates_message_only_on_mismatch() {
         let cell = AtomicEnumCell::new(TestState::Done);
 
-        let result = cell.ensure(TestState::Ready, |actual| format!("actual: {actual:?}"));
+        assert!(
+            cell.ensure(TestState::Done, |_| panic!("message must not be evaluated on success"))
+                .is_ok()
+        );
 
-        match result {
-            Ok(()) => panic!("mismatched state should fail"),
-            Err(error) => assert_eq!(error.to_string(), "actual: Done"),
-        }
+        let error = cell
+            .ensure(TestState::Ready, |actual| format!("actual: {actual:?}"))
+            .expect_err("mismatched state should fail");
+
+        assert_eq!(error.to_string(), "actual: Done");
     }
 
     #[test]
     fn try_transition_updates_only_when_current_value_matches() {
         let cell = AtomicEnumCell::new(TestState::Init);
 
-        let result = cell.try_transition(TestState::Init, TestState::Ready);
-
-        assert!(result.is_ok());
+        assert!(cell.try_transition(TestState::Init, TestState::Ready).is_ok());
         assert_eq!(cell.get(), TestState::Ready);
 
-        let result = cell.try_transition(TestState::Init, TestState::Done);
+        let error = cell
+            .try_transition(TestState::Init, TestState::Done)
+            .expect_err("transition from stale state should fail");
 
-        match result {
-            Ok(()) => panic!("transition from stale state should fail"),
-            Err(error) => assert_eq!(error.to_string(), "Failed to transition value"),
-        }
+        assert_eq!(
+            error,
+            TransitionError {
+                actual: TestState::Ready,
+                expected: TestState::Init,
+                target: TestState::Done,
+            }
+        );
 
+        assert_eq!(
+            error.to_string(),
+            "invalid transition Init -> Done: current value is Ready"
+        );
+
+        assert_eq!(cell.get(), TestState::Ready);
+    }
+
+    #[test]
+    fn try_update_applies_closure_result_or_returns_current_value() {
+        let cell = AtomicEnumCell::new(TestState::Init);
+
+        assert_eq!(cell.try_update(|_| Some(TestState::Ready)), Ok(TestState::Init));
+        assert_eq!(cell.get(), TestState::Ready);
+
+        assert_eq!(cell.try_update(|_| None), Err(TestState::Ready));
         assert_eq!(cell.get(), TestState::Ready);
     }
 }
