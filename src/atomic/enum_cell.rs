@@ -22,6 +22,7 @@ pub struct AtomicEnumCell<T> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TransitionError<T> {
     pub actual: T,
     pub expected: T,
@@ -53,7 +54,7 @@ impl<T: fmt::Debug + TryFrom<u8>> fmt::Debug for AtomicEnumCell<T> {
     }
 }
 
-impl<T: Copy + Eq + Into<u8> + TryFrom<u8>> AtomicEnumCell<T> {
+impl<T: Copy + Into<u8> + TryFrom<u8>> AtomicEnumCell<T> {
     pub fn new(value: T) -> Self {
         Self {
             _marker: PhantomData,
@@ -67,8 +68,8 @@ impl<T: Copy + Eq + Into<u8> + TryFrom<u8>> AtomicEnumCell<T> {
         M: fmt::Debug + fmt::Display + Send + Sync + 'static,
         F: FnOnce(T) -> M,
     {
-        let value = self.get();
-        ensure!(value == expected, message(value));
+        let raw = self.inner.load(Ordering::SeqCst);
+        ensure!(raw == expected.into(), message(Self::decode(raw)));
         Ok(())
     }
 
