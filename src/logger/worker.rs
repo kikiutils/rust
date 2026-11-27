@@ -1,4 +1,5 @@
 use std::{
+    fmt::Write as _,
     fs::{
         File,
         OpenOptions,
@@ -28,30 +29,41 @@ use pathkit::{
     SyncFsOps,
 };
 use rustc_hash::FxHashMap;
+use tracing_subscriber::fmt::{
+    format::Writer,
+    time::FormatTime,
+};
 
 use super::{
     options::{
         LoggerConsoleStream,
-        LoggerNonBlockingOptions,
+        LoggerQueueOptions,
     },
     queue::{
         LoggerCommand,
         QueueMakeWriter,
     },
+    timer::LoggerTimer,
 };
 
 // Constants/Statics
 const CONSOLE_BUFFER_CAPACITY: usize = 64 * 1024;
 const DEFAULT_LOG_KEY: &str = "_default";
+const DROPPED_NOTICE_TARGET: &str = "kikiutils::logger";
 const FALLBACK_FILE_INDEX: usize = 0;
 const FALLBACK_LOG_KEY: &str = "_fallback";
 const FILE_BUFFER_CAPACITY: usize = 8 * 1024;
+/// Commands handled before a forced flush, so a queue that never empties still reaches the sinks.
+const MAX_BATCH_COMMANDS: usize = 1024;
+pub(super) const TARGET_SEPARATOR: u8 = 0;
 
 // Traits
 pub(super) trait LogSink: Send + 'static {
     fn flush(&mut self);
 
-    fn write(&mut self, target: &[u8], line: &[u8]);
+    fn write_event(&mut self, event: &[u8]);
+
+    fn write_notice(&mut self, line: &[u8]);
 }
 
 // Structs
@@ -64,7 +76,11 @@ impl LogSink for ConsoleSink {
         let _ = self.writer.flush();
     }
 
-    fn write(&mut self, _: &[u8], line: &[u8]) {
+    fn write_event(&mut self, event: &[u8]) {
+        let _ = self.writer.write_all(event);
+    }
+
+    fn write_notice(&mut self, line: &[u8]) {
         let _ = self.writer.write_all(line);
     }
 }
@@ -84,7 +100,6 @@ impl ConsoleSink {
 
 pub(super) struct FileSink {
     base_dir: Path,
-    dirty_indexes: Vec<usize>,
     files: Vec<SinkFile>,
     key_indexes: FxHashMap<String, usize>,
     target_indexes: FxHashMap<Box<[u8]>, usize>,
@@ -92,25 +107,25 @@ pub(super) struct FileSink {
 
 impl LogSink for FileSink {
     fn flush(&mut self) {
-        for index in self.dirty_indexes.drain(..) {
-            let file = &mut self.files[index];
-            file.dirty = false;
+        for file in &mut self.files {
             let _ = file.writer.flush();
         }
     }
 
-    fn write(&mut self, target: &[u8], line: &[u8]) {
-        let index = match self.target_indexes.get(target) {
-            Some(&index) => index,
-            None => self.resolve_target(target),
-        };
-
-        let file = &mut self.files[index];
-        let _ = file.writer.write_all(line);
-        if !file.dirty {
-            file.dirty = true;
-            self.dirty_indexes.push(index);
+    fn write_event(&mut self, event: &[u8]) {
+        let separator = event.iter().position(|&byte| byte == TARGET_SEPARATOR);
+        debug_assert!(
+            separator.is_some(),
+            "file events must be prefixed by TargetPrefixedFormat"
+        );
+        match separator {
+            Some(separator) => self.write_line(&event[..separator], &event[separator + 1..]),
+            None => self.write_line(b"", event),
         }
+    }
+
+    fn write_notice(&mut self, line: &[u8]) {
+        self.write_line(DROPPED_NOTICE_TARGET.as_bytes(), line);
     }
 }
 
@@ -125,7 +140,6 @@ impl FileSink {
 
         Ok(Self {
             base_dir,
-            dirty_indexes: Vec::new(),
             files: vec![fallback],
             key_indexes,
             target_indexes: FxHashMap::default(),
@@ -133,7 +147,16 @@ impl FileSink {
     }
 
     // Private methods
-    /// Maps a target seen for the first time to a file index; failures are cached as the fallback file.
+    fn write_line(&mut self, target: &[u8], line: &[u8]) {
+        let index = match self.target_indexes.get(target) {
+            Some(&index) => index,
+            None => self.resolve_target(target),
+        };
+
+        let _ = self.files[index].writer.write_all(line);
+    }
+
+    /// Open failures are cached as the fallback file.
     fn resolve_target(&mut self, target: &[u8]) -> usize {
         let key = target_to_key(&String::from_utf8_lossy(target));
         let index = match self.key_indexes.get(&key) {
@@ -155,7 +178,6 @@ impl FileSink {
 }
 
 struct SinkFile {
-    dirty: bool,
     writer: BufWriter<File>,
 }
 
@@ -165,7 +187,6 @@ impl SinkFile {
         let file = OpenOptions::new().create(true).append(true).open(path)?;
 
         Ok(Self {
-            dirty: false,
             writer: BufWriter::with_capacity(FILE_BUFFER_CAPACITY, file),
         })
     }
@@ -199,16 +220,42 @@ impl LoggerWorkerGuard {
             return Ok(());
         };
 
-        let (ack_sender, ack_receiver) = std::sync::mpsc::sync_channel(0);
-        self.sender
-            .send(LoggerCommand::Shutdown(ack_sender))
-            .context("failed to send logger shutdown command")?;
-
-        ack_receiver
-            .recv()
-            .context("failed to receive logger shutdown acknowledgement")?;
-
+        // A failed send means the worker already exited; joining still reports a panic.
+        let _ = self.sender.send(LoggerCommand::Shutdown);
         handle.join().map_err(|_| anyhow!("logger worker thread panicked"))
+    }
+}
+
+struct DroppedNotifier {
+    dropped: Arc<AtomicU64>,
+    reported: u64,
+    timer: LoggerTimer,
+}
+
+impl DroppedNotifier {
+    fn flush(&mut self, sink: &mut impl LogSink) {
+        let dropped = self.dropped.load(Ordering::Relaxed);
+        if dropped > self.reported {
+            self.write_notice(sink, dropped);
+        }
+
+        sink.flush();
+    }
+
+    fn write_notice(&mut self, sink: &mut impl LogSink, dropped: u64) {
+        let mut line = String::new();
+        if self.timer.format_time(&mut Writer::new(&mut line)).is_err() {
+            line.clear();
+        }
+
+        let count = dropped - self.reported;
+        let _ = writeln!(
+            line,
+            "  WARN {DROPPED_NOTICE_TARGET}: dropped {count} log events because the queue was full"
+        );
+
+        sink.write_notice(line.as_bytes());
+        self.reported = dropped;
     }
 }
 
@@ -216,23 +263,29 @@ impl LoggerWorkerGuard {
 pub(super) fn spawn_worker(
     name: &str,
     sink: impl LogSink,
-    options: LoggerNonBlockingOptions,
-    route_by_target: bool,
+    options: LoggerQueueOptions,
+    timer: LoggerTimer,
 ) -> Result<(QueueMakeWriter, LoggerWorkerGuard)> {
-    let (sender, receiver) = std::sync::mpsc::sync_channel(options.channel_capacity);
+    let (sender, receiver) = std::sync::mpsc::sync_channel(options.capacity.get());
+    let dropped = Arc::new(AtomicU64::new(0));
+    let worker_dropped = Arc::clone(&dropped);
     let handle = thread::Builder::new()
         .name(name.to_owned())
-        .spawn(move || run_worker(&receiver, sink))
+        .spawn(move || {
+            run_worker(
+                &receiver,
+                sink,
+                DroppedNotifier {
+                    dropped: worker_dropped,
+                    reported: 0,
+                    timer,
+                },
+            );
+        })
         .with_context(|| format!("failed to spawn {name} worker"))?;
 
-    let dropped = Arc::new(AtomicU64::new(0));
     Ok((
-        QueueMakeWriter::new(
-            sender.clone(),
-            options.queue_full_policy,
-            route_by_target,
-            Arc::clone(&dropped),
-        ),
+        QueueMakeWriter::new(sender.clone(), options.full_policy, Arc::clone(&dropped)),
         LoggerWorkerGuard {
             dropped,
             handle: Some(handle),
@@ -241,36 +294,43 @@ pub(super) fn spawn_worker(
     ))
 }
 
-/// Drains every queued command before flushing, so bursts are written in batches while an idle
-/// queue still flushes each line immediately. Sinks flush their buffers on drop when all senders
-/// disconnect.
-fn run_worker(receiver: &std::sync::mpsc::Receiver<LoggerCommand>, mut sink: impl LogSink) {
-    while let Ok(mut command) = receiver.recv() {
-        loop {
+/// Drains queued commands before flushing, so bursts are written in batches while an idle queue still
+/// flushes each line immediately. Sinks flush their buffers on drop when all senders disconnect.
+fn run_worker(
+    receiver: &std::sync::mpsc::Receiver<LoggerCommand>,
+    mut sink: impl LogSink,
+    mut dropped_notifier: DroppedNotifier,
+) {
+    while let Ok(command) = receiver.recv() {
+        let mut next_command = Some(command);
+        let mut handled = 0;
+        let mut unflushed = false;
+        while let Some(command) = next_command.take() {
             match command {
                 LoggerCommand::Flush(ack_sender) => {
-                    sink.flush();
+                    dropped_notifier.flush(&mut sink);
+                    unflushed = false;
                     let _ = ack_sender.send(());
                 },
-                LoggerCommand::Shutdown(ack_sender) => {
-                    sink.flush();
-                    let _ = ack_sender.send(());
+                LoggerCommand::Shutdown => {
+                    dropped_notifier.flush(&mut sink);
                     return;
                 },
-                LoggerCommand::Write { bytes, target_len } => {
-                    let (target, line) = bytes.split_at(target_len);
-                    sink.write(target, line);
+                LoggerCommand::Write(bytes) => {
+                    sink.write_event(&bytes);
+                    unflushed = true;
                 },
             }
 
-            let Ok(next_command) = receiver.try_recv() else {
-                break;
-            };
-
-            command = next_command;
+            handled += 1;
+            if handled < MAX_BATCH_COMMANDS {
+                next_command = receiver.try_recv().ok();
+            }
         }
 
-        sink.flush();
+        if unflushed {
+            dropped_notifier.flush(&mut sink);
+        }
     }
 }
 
@@ -306,12 +366,61 @@ fn target_to_key(target: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+
+    struct RecordingSink(Arc<std::sync::Mutex<Vec<String>>>);
+
+    impl LogSink for RecordingSink {
+        fn flush(&mut self) {}
+
+        fn write_event(&mut self, event: &[u8]) {
+            self.write_notice(event);
+        }
+
+        fn write_notice(&mut self, line: &[u8]) {
+            if let Ok(mut lines) = self.0.lock() {
+                lines.push(String::from_utf8_lossy(line).into_owned());
+            }
+        }
+    }
+
+    #[test]
+    fn worker_reports_newly_dropped_events_once() -> Result<()> {
+        let lines = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let dropped = Arc::new(AtomicU64::new(3));
+        let (sender, receiver) = std::sync::mpsc::sync_channel(4);
+        let (ack_sender, ack_receiver) = std::sync::mpsc::sync_channel(4);
+        sender.send(LoggerCommand::Flush(ack_sender.clone()))?;
+        sender.send(LoggerCommand::Flush(ack_sender.clone()))?;
+        drop(ack_sender);
+        sender.send(LoggerCommand::Shutdown)?;
+
+        run_worker(
+            &receiver,
+            RecordingSink(Arc::clone(&lines)),
+            DroppedNotifier {
+                dropped,
+                reported: 0,
+                timer: LoggerTimer::new(),
+            },
+        );
+
+        assert_eq!(ack_receiver.try_iter().count(), 2);
+        let lines = lines.lock().map_err(|_| anyhow!("recording sink lock poisoned"))?;
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines[0].ends_with("  WARN kikiutils::logger: dropped 3 log events because the queue was full\n"),
+            "{lines:?}"
+        );
+
+        Ok(())
+    }
 
     #[test]
     fn target_to_key_sanitizes_and_preserves_module_hierarchy() {
         assert_eq!(target_to_key("app::endpoint::status"), "app/endpoint/status");
         assert_eq!(target_to_key("../bad::target?"), "_bad/target_");
-        assert_eq!(target_to_key("...::"), DEFAULT_LOG_KEY);
+        assert_eq!(target_to_key("...::"), "_default");
     }
 }

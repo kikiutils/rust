@@ -11,34 +11,26 @@ use std::{
     },
 };
 
-use tracing::Metadata;
 use tracing_subscriber::fmt::MakeWriter;
 
 use super::options::LoggerQueueFullPolicy;
-
-// Constants/Statics
-const LINE_CAPACITY_HINT: usize = 256;
 
 // Enums
 #[derive(Debug)]
 pub(super) enum LoggerCommand {
     Flush(std::sync::mpsc::SyncSender<()>),
-    Shutdown(std::sync::mpsc::SyncSender<()>),
-    /// `bytes[..target_len]` is the raw event target, `bytes[target_len..]` is the formatted line.
-    Write {
-        bytes: Vec<u8>,
-        target_len: usize,
-    },
+    Shutdown,
+    Write(Vec<u8>),
 }
 
 // Structs
 
-/// Hands each formatted event to a background worker with a single allocation on the caller thread.
+/// The fmt layer writes each event with one `write_all`, so `Vec::new()` costs a single exact-size
+/// allocation per event.
 #[derive(Debug)]
 pub(super) struct QueueMakeWriter {
     dropped: Arc<AtomicU64>,
     full_policy: LoggerQueueFullPolicy,
-    route_by_target: bool,
     sender: std::sync::mpsc::SyncSender<LoggerCommand>,
 }
 
@@ -47,24 +39,8 @@ impl<'a> MakeWriter<'a> for QueueMakeWriter {
 
     fn make_writer(&'a self) -> Self::Writer {
         QueueWriter {
-            bytes: Vec::with_capacity(LINE_CAPACITY_HINT),
+            bytes: Vec::new(),
             queue: self,
-            target_len: 0,
-        }
-    }
-
-    fn make_writer_for(&'a self, meta: &Metadata<'_>) -> Self::Writer {
-        if !self.route_by_target {
-            return self.make_writer();
-        }
-
-        let target = meta.target().as_bytes();
-        let mut bytes = Vec::with_capacity(target.len() + LINE_CAPACITY_HINT);
-        bytes.extend_from_slice(target);
-        QueueWriter {
-            bytes,
-            queue: self,
-            target_len: target.len(),
         }
     }
 }
@@ -73,13 +49,11 @@ impl QueueMakeWriter {
     pub(super) fn new(
         sender: std::sync::mpsc::SyncSender<LoggerCommand>,
         full_policy: LoggerQueueFullPolicy,
-        route_by_target: bool,
         dropped: Arc<AtomicU64>,
     ) -> Self {
         Self {
             dropped,
             full_policy,
-            route_by_target,
             sender,
         }
     }
@@ -101,16 +75,12 @@ impl QueueMakeWriter {
 pub(super) struct QueueWriter<'a> {
     bytes: Vec<u8>,
     queue: &'a QueueMakeWriter,
-    target_len: usize,
 }
 
 impl Drop for QueueWriter<'_> {
     fn drop(&mut self) {
-        if self.bytes.len() > self.target_len {
-            self.queue.send(LoggerCommand::Write {
-                bytes: mem::take(&mut self.bytes),
-                target_len: self.target_len,
-            });
+        if !self.bytes.is_empty() {
+            self.queue.send(LoggerCommand::Write(mem::take(&mut self.bytes)));
         }
     }
 }
@@ -128,7 +98,6 @@ impl Write for QueueWriter<'_> {
 
 #[cfg(test)]
 mod tests {
-
     use anyhow::{
         Result,
         bail,
@@ -140,18 +109,18 @@ mod tests {
     fn drop_newest_counts_dropped_events_without_blocking() -> Result<()> {
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let dropped = Arc::new(AtomicU64::new(0));
-        let queue = QueueMakeWriter::new(sender, LoggerQueueFullPolicy::DropNewest, false, Arc::clone(&dropped));
+        let queue = QueueMakeWriter::new(sender, LoggerQueueFullPolicy::DropNewest, Arc::clone(&dropped));
 
         queue.make_writer().write_all(b"first\n")?;
         queue.make_writer().write_all(b"second\n")?;
         drop(queue.make_writer());
 
         assert_eq!(dropped.load(Ordering::Relaxed), 1);
-        let LoggerCommand::Write { bytes, target_len } = receiver.try_recv()? else {
+        let LoggerCommand::Write(bytes) = receiver.try_recv()? else {
             bail!("expected a write command");
         };
 
-        assert_eq!((bytes.as_slice(), target_len), (b"first\n".as_slice(), 0));
+        assert_eq!(bytes, b"first\n");
         assert!(receiver.try_recv().is_err());
 
         Ok(())

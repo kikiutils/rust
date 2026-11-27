@@ -1,4 +1,7 @@
-use std::env;
+use std::{
+    env,
+    num::NonZeroUsize,
+};
 
 use anyhow::{
     Result,
@@ -6,13 +9,14 @@ use anyhow::{
     bail,
 };
 use pathkit::Path;
-use strum::EnumString;
 
 // Constants/Statics
-const DEFAULT_CHANNEL_CAPACITY: usize = 8192;
+const DEFAULT_QUEUE_CAPACITY: NonZeroUsize = match NonZeroUsize::new(8192) {
+    Some(capacity) => capacity,
+    None => panic!("default queue capacity must be non-zero"),
+};
 const DEFAULT_FILTER: &str = "info";
 const ENV_LOG_FILTER: &str = "RUST_LOG";
-const ENV_LOGGER_CHANNEL_CAPACITY: &str = "LOGGER_CHANNEL_CAPACITY";
 const ENV_LOGGER_CONSOLE_ANSI: &str = "LOGGER_CONSOLE_ANSI";
 const ENV_LOGGER_CONSOLE_ENABLED: &str = "LOGGER_CONSOLE_ENABLED";
 const ENV_LOGGER_CONSOLE_FILTER: &str = "LOGGER_CONSOLE_FILTER";
@@ -21,12 +25,12 @@ const ENV_LOGGER_CONSOLE_TARGET: &str = "LOGGER_CONSOLE_TARGET";
 const ENV_LOGGER_FILE_DIR: &str = "LOGGER_FILE_DIR";
 const ENV_LOGGER_FILE_ENABLED: &str = "LOGGER_FILE_ENABLED";
 const ENV_LOGGER_FILE_FILTER: &str = "LOGGER_FILE_FILTER";
+const ENV_LOGGER_QUEUE_CAPACITY: &str = "LOGGER_QUEUE_CAPACITY";
 const ENV_LOGGER_QUEUE_FULL_POLICY: &str = "LOGGER_QUEUE_FULL_POLICY";
 
 // Enums
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, EnumString)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
-#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum LoggerAnsiMode {
     Always,
     /// Enabled when the console stream is a terminal and `NO_COLOR` is unset or empty.
@@ -35,18 +39,16 @@ pub enum LoggerAnsiMode {
     Never,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, EnumString)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
-#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum LoggerConsoleStream {
     #[default]
     Stdout,
     Stderr,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, EnumString)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
-#[strum(serialize_all = "snake_case", ascii_case_insensitive)]
 pub enum LoggerQueueFullPolicy {
     Block,
     #[default]
@@ -68,10 +70,10 @@ pub struct LoggerConsoleOutputOptions {
 impl Default for LoggerConsoleOutputOptions {
     fn default() -> Self {
         Self {
-            ansi: LoggerAnsiMode::Auto,
+            ansi: LoggerAnsiMode::default(),
             filter: DEFAULT_FILTER.to_owned(),
             include_target: true,
-            stream: LoggerConsoleStream::Stdout,
+            stream: LoggerConsoleStream::default(),
         }
     }
 }
@@ -129,31 +131,31 @@ impl LoggerFileOutputOptions {
 
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
-pub struct LoggerNonBlockingOptions {
-    pub channel_capacity: usize,
-    pub queue_full_policy: LoggerQueueFullPolicy,
+pub struct LoggerQueueOptions {
+    pub capacity: NonZeroUsize,
+    pub full_policy: LoggerQueueFullPolicy,
 }
 
-impl Default for LoggerNonBlockingOptions {
+impl Default for LoggerQueueOptions {
     fn default() -> Self {
         Self {
-            channel_capacity: DEFAULT_CHANNEL_CAPACITY,
-            queue_full_policy: LoggerQueueFullPolicy::DropNewest,
+            capacity: DEFAULT_QUEUE_CAPACITY,
+            full_policy: LoggerQueueFullPolicy::default(),
         }
     }
 }
 
-impl LoggerNonBlockingOptions {
+impl LoggerQueueOptions {
     // Public methods
     #[must_use]
-    pub fn with_channel_capacity(mut self, channel_capacity: usize) -> Self {
-        self.channel_capacity = channel_capacity;
+    pub fn with_capacity(mut self, capacity: NonZeroUsize) -> Self {
+        self.capacity = capacity;
         self
     }
 
     #[must_use]
-    pub fn with_queue_full_policy(mut self, queue_full_policy: LoggerQueueFullPolicy) -> Self {
-        self.queue_full_policy = queue_full_policy;
+    pub fn with_full_policy(mut self, full_policy: LoggerQueueFullPolicy) -> Self {
+        self.full_policy = full_policy;
         self
     }
 }
@@ -163,7 +165,7 @@ impl LoggerNonBlockingOptions {
 pub struct LoggerInitOptions {
     pub console_output: Option<LoggerConsoleOutputOptions>,
     pub file_output: Option<LoggerFileOutputOptions>,
-    pub non_blocking: LoggerNonBlockingOptions,
+    pub queue: LoggerQueueOptions,
 }
 
 impl Default for LoggerInitOptions {
@@ -171,20 +173,13 @@ impl Default for LoggerInitOptions {
         Self {
             console_output: Some(LoggerConsoleOutputOptions::default()),
             file_output: None,
-            non_blocking: LoggerNonBlockingOptions::default(),
+            queue: LoggerQueueOptions::default(),
         }
     }
 }
 
 impl LoggerInitOptions {
     // Public methods
-    pub fn disabled() -> Self {
-        Self {
-            console_output: None,
-            file_output: None,
-            non_blocking: LoggerNonBlockingOptions::default(),
-        }
-    }
 
     #[must_use]
     pub fn with_console_output(mut self, console_output: LoggerConsoleOutputOptions) -> Self {
@@ -199,8 +194,8 @@ impl LoggerInitOptions {
     }
 
     #[must_use]
-    pub fn with_non_blocking(mut self, non_blocking: LoggerNonBlockingOptions) -> Self {
-        self.non_blocking = non_blocking;
+    pub fn with_queue(mut self, queue: LoggerQueueOptions) -> Self {
+        self.queue = queue;
         self
     }
 
@@ -216,11 +211,8 @@ impl LoggerInitOptions {
         self
     }
 
-    /// Builds logger initialization options from environment variables.
-    ///
     /// Reads these keys:
     /// - `RUST_LOG`: default filter directives for all outputs
-    /// - `LOGGER_CHANNEL_CAPACITY`
     /// - `LOGGER_CONSOLE_ANSI`: `auto`, `always`, `never`, or a boolean
     /// - `LOGGER_CONSOLE_ENABLED`
     /// - `LOGGER_CONSOLE_FILTER`: console filter directives, overrides `RUST_LOG`
@@ -229,7 +221,8 @@ impl LoggerInitOptions {
     /// - `LOGGER_FILE_DIR`: required when `LOGGER_FILE_ENABLED` is true
     /// - `LOGGER_FILE_ENABLED`
     /// - `LOGGER_FILE_FILTER`: file filter directives, overrides `RUST_LOG`
-    /// - `LOGGER_QUEUE_FULL_POLICY`
+    /// - `LOGGER_QUEUE_CAPACITY`: a positive integer
+    /// - `LOGGER_QUEUE_FULL_POLICY`: `block` or `drop_newest`
     ///
     /// Filter directives are validated by [`init_logger`](super::init_logger).
     pub fn from_env() -> Result<Self> {
@@ -248,12 +241,22 @@ impl LoggerInitOptions {
         let default_filter = env.value(ENV_LOG_FILTER).unwrap_or_else(|| default_filter.to_owned());
         let console_output = if env.bool(ENV_LOGGER_CONSOLE_ENABLED, true)? {
             Some(LoggerConsoleOutputOptions {
-                ansi: env.ansi_mode()?,
+                ansi: env.parse(
+                    ENV_LOGGER_CONSOLE_ANSI,
+                    "one of auto, always, never, or a boolean value",
+                    LoggerAnsiMode::default(),
+                    parse_ansi_mode,
+                )?,
                 filter: env
                     .value(ENV_LOGGER_CONSOLE_FILTER)
                     .unwrap_or_else(|| default_filter.clone()),
                 include_target: env.bool(ENV_LOGGER_CONSOLE_TARGET, true)?,
-                stream: env.console_stream()?,
+                stream: env.parse(
+                    ENV_LOGGER_CONSOLE_STREAM,
+                    "one of stdout, stderr",
+                    LoggerConsoleStream::default(),
+                    parse_console_stream,
+                )?,
             })
         } else {
             None
@@ -272,19 +275,22 @@ impl LoggerInitOptions {
             None
         };
 
-        let channel_capacity = match env.value(ENV_LOGGER_CHANNEL_CAPACITY) {
-            Some(value) => value
-                .parse()
-                .map_err(|error| anyhow!("{ENV_LOGGER_CHANNEL_CAPACITY} must be a non-negative integer: {error}"))?,
-            None => DEFAULT_CHANNEL_CAPACITY,
-        };
-
         Ok(Self {
             console_output,
             file_output,
-            non_blocking: LoggerNonBlockingOptions {
-                channel_capacity,
-                queue_full_policy: env.queue_full_policy()?,
+            queue: LoggerQueueOptions {
+                capacity: env.parse(
+                    ENV_LOGGER_QUEUE_CAPACITY,
+                    "a positive integer",
+                    DEFAULT_QUEUE_CAPACITY,
+                    |value| value.parse().ok(),
+                )?,
+                full_policy: env.parse(
+                    ENV_LOGGER_QUEUE_FULL_POLICY,
+                    "one of block, drop_newest",
+                    LoggerQueueFullPolicy::default(),
+                    parse_queue_full_policy,
+                )?,
             },
         })
     }
@@ -294,45 +300,15 @@ struct EnvReader<F>(F);
 
 impl<F: Fn(&str) -> Option<String>> EnvReader<F> {
     fn bool(&self, key: &str, default: bool) -> Result<bool> {
+        self.parse(key, "a boolean value", default, parse_bool)
+    }
+
+    fn parse<T>(&self, key: &str, expected: &str, default: T, parse: fn(&str) -> Option<T>) -> Result<T> {
         let Some(value) = self.value(key) else {
             return Ok(default);
         };
 
-        parse_bool(&value).ok_or_else(|| anyhow!("{key} must be a boolean value"))
-    }
-
-    fn ansi_mode(&self) -> Result<LoggerAnsiMode> {
-        let Some(value) = self.value(ENV_LOGGER_CONSOLE_ANSI) else {
-            return Ok(LoggerAnsiMode::default());
-        };
-
-        match parse_bool(&value) {
-            Some(true) => Ok(LoggerAnsiMode::Always),
-            Some(false) => Ok(LoggerAnsiMode::Never),
-            None => value.parse().map_err(|_| {
-                anyhow!("{ENV_LOGGER_CONSOLE_ANSI} must be one of auto, always, never, or a boolean value")
-            }),
-        }
-    }
-
-    fn console_stream(&self) -> Result<LoggerConsoleStream> {
-        let Some(value) = self.value(ENV_LOGGER_CONSOLE_STREAM) else {
-            return Ok(LoggerConsoleStream::default());
-        };
-
-        value
-            .parse()
-            .map_err(|_| anyhow!("{ENV_LOGGER_CONSOLE_STREAM} must be one of stdout, stderr"))
-    }
-
-    fn queue_full_policy(&self) -> Result<LoggerQueueFullPolicy> {
-        let Some(value) = self.value(ENV_LOGGER_QUEUE_FULL_POLICY) else {
-            return Ok(LoggerQueueFullPolicy::default());
-        };
-
-        value
-            .parse()
-            .map_err(|_| anyhow!("{ENV_LOGGER_QUEUE_FULL_POLICY} must be one of block, drop_newest"))
+        parse(&value.to_ascii_lowercase()).ok_or_else(|| anyhow!("{key} must be {expected}"))
     }
 
     fn value(&self, key: &str) -> Option<String> {
@@ -343,10 +319,41 @@ impl<F: Fn(&str) -> Option<String>> EnvReader<F> {
 }
 
 // Functions
+fn parse_ansi_mode(value: &str) -> Option<LoggerAnsiMode> {
+    match value {
+        "always" => Some(LoggerAnsiMode::Always),
+        "auto" => Some(LoggerAnsiMode::Auto),
+        "never" => Some(LoggerAnsiMode::Never),
+        _ => parse_bool(value).map(|enabled| {
+            if enabled {
+                LoggerAnsiMode::Always
+            } else {
+                LoggerAnsiMode::Never
+            }
+        }),
+    }
+}
+
 fn parse_bool(value: &str) -> Option<bool> {
-    match value.to_ascii_lowercase().as_str() {
+    match value {
         "1" | "true" | "yes" | "y" | "on" => Some(true),
         "0" | "false" | "no" | "n" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn parse_console_stream(value: &str) -> Option<LoggerConsoleStream> {
+    match value {
+        "stdout" => Some(LoggerConsoleStream::Stdout),
+        "stderr" => Some(LoggerConsoleStream::Stderr),
+        _ => None,
+    }
+}
+
+fn parse_queue_full_policy(value: &str) -> Option<LoggerQueueFullPolicy> {
+    match value {
+        "block" => Some(LoggerQueueFullPolicy::Block),
+        "drop_newest" => Some(LoggerQueueFullPolicy::DropNewest),
         _ => None,
     }
 }
@@ -401,7 +408,7 @@ mod tests {
             .console_output
             .ok_or_else(|| anyhow!("console output should be enabled"))?;
 
-        assert_eq!(console.filter, DEFAULT_FILTER);
+        assert_eq!(console.filter, "info");
         assert_eq!(console.stream, LoggerConsoleStream::Stdout);
         assert!(options.file_output.is_none());
 
@@ -466,11 +473,11 @@ mod tests {
             ("  ", LoggerQueueFullPolicy::default()),
         ] {
             let options = from_pairs(&[(ENV_LOGGER_QUEUE_FULL_POLICY, value)])?;
-            assert_eq!(options.non_blocking.queue_full_policy, expected, "{value:?}");
+            assert_eq!(options.queue.full_policy, expected, "{value:?}");
         }
 
         let options = from_pairs(&[])?;
-        assert_eq!(options.non_blocking.queue_full_policy, LoggerQueueFullPolicy::default());
+        assert_eq!(options.queue.full_policy, LoggerQueueFullPolicy::default());
         Ok(())
     }
 
@@ -479,7 +486,8 @@ mod tests {
         assert!(from_pairs(&[(ENV_LOGGER_FILE_ENABLED, "true")]).is_err());
         assert!(from_pairs(&[(ENV_LOGGER_CONSOLE_STREAM, "stdin")]).is_err());
         assert!(from_pairs(&[(ENV_LOGGER_CONSOLE_ENABLED, "maybe")]).is_err());
-        assert!(from_pairs(&[(ENV_LOGGER_CHANNEL_CAPACITY, "-1")]).is_err());
+        assert!(from_pairs(&[(ENV_LOGGER_QUEUE_CAPACITY, "-1")]).is_err());
+        assert!(from_pairs(&[(ENV_LOGGER_QUEUE_CAPACITY, "0")]).is_err());
         assert!(from_pairs(&[(ENV_LOGGER_QUEUE_FULL_POLICY, "wait")]).is_err());
         assert!(from_pairs(&[(ENV_LOGGER_CONSOLE_ANSI, "sometimes")]).is_err());
     }
