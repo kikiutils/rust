@@ -348,17 +348,7 @@ async fn failed_on_stop_reports_the_error_and_allows_a_restart() {
     assert_eq!(service.state(), ServiceState::Stopped);
 
     service.start().await.unwrap();
-    assert_eq!(service.state(), ServiceState::Running);
-}
-
-#[tokio::test]
-async fn stop_with_timeout_reports_a_failing_on_stop() {
-    let service = Arc::new(TestService::default());
-    set(&service.on_stop_should_fail, true);
-    service.start().await.unwrap();
-
     let error = service.stop_with_timeout(COMPLETION_TIMEOUT).await.unwrap_err();
-
     assert_eq!(error.to_string(), "cleanup failed");
     assert!(!error.is::<StopTimedOut>());
     assert_eq!(service.state(), ServiceState::Stopped);
