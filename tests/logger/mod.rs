@@ -10,6 +10,7 @@ use anyhow::Result;
 use kikiutils::logger::{
     init_logger,
     options::{
+        LoggerAnsiMode,
         LoggerConsoleOutputOptions,
         LoggerConsoleStream,
         LoggerFileOutputOptions,
@@ -38,6 +39,7 @@ fn init_logger_writes_filtered_events_to_target_files() -> Result<()> {
         LoggerInitOptions::default()
             .with_console_output(
                 LoggerConsoleOutputOptions::default()
+                    .with_ansi(LoggerAnsiMode::Always)
                     .with_filter("logger_integration::span=info")
                     .with_stream(LoggerConsoleStream::Stderr),
             )

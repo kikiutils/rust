@@ -1,4 +1,11 @@
-use std::fmt;
+use std::{
+    env,
+    fmt,
+    io::{
+        self,
+        IsTerminal,
+    },
+};
 
 use anyhow::{
     Context,
@@ -28,7 +35,11 @@ mod timer;
 mod worker;
 
 use self::{
-    options::LoggerInitOptions,
+    options::{
+        LoggerAnsiMode,
+        LoggerConsoleStream,
+        LoggerInitOptions,
+    },
     timer::LoggerTimer,
     worker::{
         ConsoleSink,
@@ -159,7 +170,7 @@ pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
             tracing_subscriber::fmt::layer()
                 .with_timer(timer)
                 .with_writer(writer)
-                .with_ansi(console_options.ansi_enabled)
+                .with_ansi(resolve_ansi(console_options.ansi, console_options.stream))
                 .with_target(console_options.include_target)
                 .with_filter(filter)
                 .boxed(),
@@ -194,4 +205,19 @@ fn parse_filter(directives: &str) -> Result<EnvFilter> {
     EnvFilter::builder()
         .parse(directives)
         .with_context(|| format!("failed to parse filter directives: {directives}"))
+}
+
+fn resolve_ansi(mode: LoggerAnsiMode, stream: LoggerConsoleStream) -> bool {
+    match mode {
+        LoggerAnsiMode::Always => true,
+        LoggerAnsiMode::Auto => {
+            let is_terminal = match stream {
+                LoggerConsoleStream::Stdout => io::stdout().is_terminal(),
+                LoggerConsoleStream::Stderr => io::stderr().is_terminal(),
+            };
+
+            is_terminal && env::var_os("NO_COLOR").is_none_or(|value| value.is_empty())
+        },
+        LoggerAnsiMode::Never => false,
+    }
 }

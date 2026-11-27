@@ -27,6 +27,17 @@ const ENV_LOGGER_QUEUE_FULL_POLICY: &str = "LOGGER_QUEUE_FULL_POLICY";
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, EnumString)]
 #[non_exhaustive]
 #[strum(serialize_all = "lowercase", ascii_case_insensitive)]
+pub enum LoggerAnsiMode {
+    Always,
+    /// Enabled when the console stream is a terminal and `NO_COLOR` is unset or empty.
+    #[default]
+    Auto,
+    Never,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, EnumString)]
+#[non_exhaustive]
+#[strum(serialize_all = "lowercase", ascii_case_insensitive)]
 pub enum LoggerConsoleStream {
     #[default]
     Stdout,
@@ -47,7 +58,7 @@ pub enum LoggerQueueFullPolicy {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct LoggerConsoleOutputOptions {
-    pub ansi_enabled: bool,
+    pub ansi: LoggerAnsiMode,
     /// [`EnvFilter`](tracing_subscriber::EnvFilter) directives, e.g. `info` or `info,hyper=warn`.
     pub filter: String,
     pub include_target: bool,
@@ -57,7 +68,7 @@ pub struct LoggerConsoleOutputOptions {
 impl Default for LoggerConsoleOutputOptions {
     fn default() -> Self {
         Self {
-            ansi_enabled: true,
+            ansi: LoggerAnsiMode::Auto,
             filter: DEFAULT_FILTER.to_owned(),
             include_target: true,
             stream: LoggerConsoleStream::Stdout,
@@ -68,8 +79,8 @@ impl Default for LoggerConsoleOutputOptions {
 impl LoggerConsoleOutputOptions {
     // Public methods
     #[must_use]
-    pub fn with_ansi_enabled(mut self, ansi_enabled: bool) -> Self {
-        self.ansi_enabled = ansi_enabled;
+    pub fn with_ansi(mut self, ansi: LoggerAnsiMode) -> Self {
+        self.ansi = ansi;
         self
     }
 
@@ -214,7 +225,7 @@ impl LoggerInitOptions {
     /// - `LOGGER_CONSOLE_LEVEL`: console filter directives, overrides `RUST_LOG`
     /// - `LOGGER_CONSOLE_STREAM`: `stdout` or `stderr`
     /// - `LOGGER_CONSOLE_TARGET`
-    /// - `LOGGER_CONSOLE_ANSI`
+    /// - `LOGGER_CONSOLE_ANSI`: `auto`, `always`, `never`, or a boolean
     /// - `LOGGER_FILE_LEVEL`: file filter directives, overrides `RUST_LOG`
     /// - `LOGGER_LOG_DIR`
     /// - `LOGGER_LOG_TO_FILE`
@@ -231,7 +242,7 @@ impl LoggerInitOptions {
         let default_filter = env.value(ENV_LOG_FILTER).unwrap_or_else(|| DEFAULT_FILTER.to_owned());
         let console_output = if env.bool(ENV_LOGGER_CONSOLE_ENABLED, true)? {
             Some(LoggerConsoleOutputOptions {
-                ansi_enabled: env.bool(ENV_LOGGER_CONSOLE_ANSI, true)?,
+                ansi: env.ansi_mode()?,
                 filter: env
                     .value(ENV_LOGGER_CONSOLE_LEVEL)
                     .unwrap_or_else(|| default_filter.clone()),
@@ -281,10 +292,20 @@ impl<F: Fn(&str) -> Option<String>> EnvReader<F> {
             return Ok(default);
         };
 
-        match value.to_ascii_lowercase().as_str() {
-            "1" | "true" | "yes" | "y" | "on" => Ok(true),
-            "0" | "false" | "no" | "n" | "off" => Ok(false),
-            _ => bail!("{key} must be a boolean value"),
+        parse_bool(&value).ok_or_else(|| anyhow!("{key} must be a boolean value"))
+    }
+
+    fn ansi_mode(&self) -> Result<LoggerAnsiMode> {
+        let Some(value) = self.value(ENV_LOGGER_CONSOLE_ANSI) else {
+            return Ok(LoggerAnsiMode::default());
+        };
+
+        match parse_bool(&value) {
+            Some(true) => Ok(LoggerAnsiMode::Always),
+            Some(false) => Ok(LoggerAnsiMode::Never),
+            None => value.parse().map_err(|_| {
+                anyhow!("{ENV_LOGGER_CONSOLE_ANSI} must be one of auto, always, never, or a boolean value")
+            }),
         }
     }
 
@@ -312,6 +333,15 @@ impl<F: Fn(&str) -> Option<String>> EnvReader<F> {
         (self.0)(key)
             .map(|value| value.trim().to_owned())
             .filter(|value| !value.is_empty())
+    }
+}
+
+// Functions
+fn parse_bool(value: &str) -> Option<bool> {
+    match value.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "y" | "on" => Some(true),
+        "0" | "false" | "no" | "n" | "off" => Some(false),
+        _ => None,
     }
 }
 
@@ -383,6 +413,22 @@ mod tests {
         }
 
         for (value, expected) in [
+            ("  AuTo  ", LoggerAnsiMode::Auto),
+            ("always", LoggerAnsiMode::Always),
+            ("never", LoggerAnsiMode::Never),
+            ("true", LoggerAnsiMode::Always),
+            ("off", LoggerAnsiMode::Never),
+            ("  ", LoggerAnsiMode::default()),
+        ] {
+            let options = from_pairs(&[(ENV_LOGGER_CONSOLE_ANSI, value)])?;
+            assert_eq!(
+                options.console_output.map(|console| console.ansi),
+                Some(expected),
+                "{value:?}"
+            );
+        }
+
+        for (value, expected) in [
             ("block", LoggerQueueFullPolicy::Block),
             ("  DrOp_NeWeSt  ", LoggerQueueFullPolicy::DropNewest),
             ("  ", LoggerQueueFullPolicy::default()),
@@ -403,5 +449,6 @@ mod tests {
         assert!(from_pairs(&[(ENV_LOGGER_CONSOLE_ENABLED, "maybe")]).is_err());
         assert!(from_pairs(&[(ENV_LOGGER_CHANNEL_CAPACITY, "-1")]).is_err());
         assert!(from_pairs(&[(ENV_LOGGER_QUEUE_FULL_POLICY, "wait")]).is_err());
+        assert!(from_pairs(&[(ENV_LOGGER_CONSOLE_ANSI, "sometimes")]).is_err());
     }
 }
