@@ -160,6 +160,7 @@ async-service = [
   "dep:anyhow",
   "dep:tokio",
   "task",
+  "tokio/sync",
 ]
 
 atomic-enum-cell = ["dep:anyhow"]
@@ -185,6 +186,7 @@ logger = [
 
 signal = [
   "dep:tokio",
+  "tokio/macros",
   "tokio/signal",
 ]
 
@@ -202,10 +204,10 @@ task = [
 [dependencies]
 anyhow = { version = ">=1.0.100, <2", optional = true }
 dashmap = { version = ">=6.0.0, <7", optional = true }
-pathkit = { version = "3.1.0", optional = true }
+pathkit = { version = ">=3.1.0, <4", optional = true }
 rustc-hash = { version = ">=2.1.0, <3", optional = true }
 time = { version = ">=0.3.50, <0.4", features = ["formatting", "local-offset", "macros"], optional = true }
-tokio = { version = ">=1.53.0, <2", features = ["macros", "rt", "sync"], optional = true }
+tokio = { version = ">=1.53.0, <2", features = ["rt"], optional = true }
 tokio-util = { version = ">=0.7.20, <0.8", features = ["rt"], optional = true }
 tracing = { version = ">=0.1.40, <0.2", optional = true }
 tracing-log = { version = ">=0.2.0, <0.3", optional = true }
@@ -332,7 +334,7 @@ tikv-jemallocator = { version = "0.7.0", features = ["background_threads_runtime
 # Test/example/bench-only dependencies.
 [dev-dependencies]
 log = "0.4.35"
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "time"] }
+tokio = { version = ">=1.54.1, <2", features = ["macros", "rt", "time"] }
 
 # -----------------------------------------------------------------------------
 # Target-specific development dependencies
