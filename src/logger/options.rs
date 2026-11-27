@@ -35,17 +35,10 @@ pub enum LoggerConsoleStream {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, EnumString)]
 #[non_exhaustive]
-#[strum(ascii_case_insensitive)]
+#[strum(serialize_all = "snake_case", ascii_case_insensitive)]
 pub enum LoggerQueueFullPolicy {
-    #[strum(serialize = "block", serialize = "blocking")]
     Block,
     #[default]
-    #[strum(
-        serialize = "drop",
-        serialize = "drop_newest",
-        serialize = "drop-newest",
-        serialize = "lossy"
-    )]
     DropNewest,
 }
 
@@ -391,12 +384,6 @@ mod tests {
 
         for (value, expected) in [
             ("block", LoggerQueueFullPolicy::Block),
-            ("blocking", LoggerQueueFullPolicy::Block),
-            ("  BlOcKiNg  ", LoggerQueueFullPolicy::Block),
-            ("drop", LoggerQueueFullPolicy::DropNewest),
-            ("drop_newest", LoggerQueueFullPolicy::DropNewest),
-            ("drop-newest", LoggerQueueFullPolicy::DropNewest),
-            ("lossy", LoggerQueueFullPolicy::DropNewest),
             ("  DrOp_NeWeSt  ", LoggerQueueFullPolicy::DropNewest),
             ("  ", LoggerQueueFullPolicy::default()),
         ] {
