@@ -65,6 +65,7 @@ async fn reopen_hands_out_fresh_tokens_after_cancel() {
     let token_before_cancel = manager.token();
     manager.shutdown().await;
     assert!(token_before_cancel.is_cancelled());
+    assert!(manager.is_cancelled());
 
     let cancelled_before_reopen = manager.spawn_with_token(async |cancel_token| cancel_token.is_cancelled());
     assert!(cancelled_before_reopen.await.unwrap());
@@ -101,6 +102,28 @@ async fn cancelling_the_parent_reaches_tokens_handed_out_after_reopen() {
     manager.reopen();
     let cancelled_after_parent = manager.spawn_with_token(async |cancel_token| cancel_token.is_cancelled());
     assert!(cancelled_after_parent.await.unwrap());
+}
+
+#[tokio::test]
+async fn clones_share_tasks_and_tokens() {
+    let manager = TaskManager::new();
+    let clone = manager.clone();
+    let task = clone.spawn_with_token(async |cancel_token| cancel_token.cancelled().await);
+
+    assert_eq!(manager.len(), 1);
+    manager.cancel();
+    timeout(COMPLETION_TIMEOUT, task).await.unwrap().unwrap();
+    assert!(clone.is_empty());
+}
+
+#[cfg(feature = "signal")]
+#[tokio::test]
+async fn shutdown_signal_listener_does_not_hold_up_shutdown() {
+    let manager = TaskManager::new();
+    let listener = manager.cancel_on_shutdown_signal();
+
+    timeout(COMPLETION_TIMEOUT, manager.shutdown()).await.unwrap();
+    assert!(!listener.await.unwrap().unwrap());
 }
 
 #[tokio::test]

@@ -1,6 +1,7 @@
 use std::{
     future::Future,
     sync::{
+        Arc,
         Mutex,
         MutexGuard,
         PoisonError,
@@ -23,14 +24,14 @@ use tokio_util::{
 /// one root token, so [`cancel`](Self::cancel) also reaches tasks spawned afterwards until
 /// [`reopen`](Self::reopen).
 ///
-/// Waiting from a task spawned by this manager never completes, because the manager waits for that
-/// task too.
-#[derive(Debug)]
+/// Clones share the same tasks and tokens. Waiting from a task spawned by this manager never
+/// completes, because the manager waits for that task too.
+#[derive(Clone, Debug)]
 pub struct TaskManager {
     /// Never cancelled unless it is the parent passed to [`with_parent`](Self::with_parent); every root
     /// is its child.
     base: CancellationToken,
-    root: Mutex<CancellationToken>,
+    root: Arc<Mutex<CancellationToken>>,
     tracker: TaskTracker,
 }
 
@@ -54,6 +55,37 @@ impl TaskManager {
     // Public methods
     pub fn cancel(&self) {
         self.root().cancel();
+    }
+
+    /// Spawns a task that cancels this manager when the process receives a shutdown signal, see
+    /// [`wait_for_shutdown_signal`](crate::signal::wait_for_shutdown_signal).
+    ///
+    /// The task returns `true` if a signal cancelled the manager, and ends with `false` once the
+    /// manager is cancelled otherwise; it does not follow a later [`reopen`](Self::reopen). The signal
+    /// handlers are registered when the task first runs, not before this returns; if registering
+    /// fails, the task returns the error without cancelling.
+    ///
+    /// Tokio keeps the handlers registered until the process exits, so after the task ends these
+    /// signals no longer terminate the process and are ignored unless something else listens; call
+    /// this again after a `reopen`.
+    #[cfg(feature = "signal")]
+    pub fn cancel_on_shutdown_signal(&self) -> JoinHandle<anyhow::Result<bool>> {
+        let root = self.root().clone();
+        self.spawn(async move {
+            tokio::select! {
+                biased;
+                () = root.cancelled() => Ok(false),
+                result = crate::signal::wait_for_shutdown_signal() => {
+                    result?;
+                    root.cancel();
+                    Ok(true)
+                },
+            }
+        })
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.root().is_cancelled()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -108,8 +140,7 @@ impl TaskManager {
         Fut: Future + Send + 'static,
         Fut::Output: Send + 'static,
     {
-        let cancel_token = self.root().child_token();
-        self.tracker.spawn(f(cancel_token))
+        self.spawn(f(self.token()))
     }
 
     /// Returns a child of the current root, cancelled by [`cancel`](Self::cancel) or the parent; a later
@@ -118,8 +149,8 @@ impl TaskManager {
         self.root().child_token()
     }
 
-    /// Waits until no task is running, including tasks spawned while waiting; it returns once the manager
-    /// is empty, even if a task is spawned right after.
+    /// Includes tasks spawned while waiting, but returns as soon as the manager is empty, even if a task
+    /// is spawned right after.
     pub async fn wait(&self) {
         self.tracker.wait().await;
     }
@@ -133,7 +164,7 @@ impl TaskManager {
 
         Self {
             base,
-            root: Mutex::new(root),
+            root: Arc::new(Mutex::new(root)),
             tracker,
         }
     }
