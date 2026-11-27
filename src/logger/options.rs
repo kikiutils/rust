@@ -15,12 +15,12 @@ const ENV_LOG_FILTER: &str = "RUST_LOG";
 const ENV_LOGGER_CHANNEL_CAPACITY: &str = "LOGGER_CHANNEL_CAPACITY";
 const ENV_LOGGER_CONSOLE_ANSI: &str = "LOGGER_CONSOLE_ANSI";
 const ENV_LOGGER_CONSOLE_ENABLED: &str = "LOGGER_CONSOLE_ENABLED";
-const ENV_LOGGER_CONSOLE_LEVEL: &str = "LOGGER_CONSOLE_LEVEL";
+const ENV_LOGGER_CONSOLE_FILTER: &str = "LOGGER_CONSOLE_FILTER";
 const ENV_LOGGER_CONSOLE_STREAM: &str = "LOGGER_CONSOLE_STREAM";
 const ENV_LOGGER_CONSOLE_TARGET: &str = "LOGGER_CONSOLE_TARGET";
-const ENV_LOGGER_FILE_BASE_DIR: &str = "LOGGER_LOG_DIR";
-const ENV_LOGGER_FILE_ENABLED: &str = "LOGGER_LOG_TO_FILE";
-const ENV_LOGGER_FILE_LEVEL: &str = "LOGGER_FILE_LEVEL";
+const ENV_LOGGER_FILE_DIR: &str = "LOGGER_FILE_DIR";
+const ENV_LOGGER_FILE_ENABLED: &str = "LOGGER_FILE_ENABLED";
+const ENV_LOGGER_FILE_FILTER: &str = "LOGGER_FILE_FILTER";
 const ENV_LOGGER_QUEUE_FULL_POLICY: &str = "LOGGER_QUEUE_FULL_POLICY";
 
 // Enums
@@ -221,14 +221,14 @@ impl LoggerInitOptions {
     /// Reads these keys:
     /// - `RUST_LOG`: default filter directives for all outputs
     /// - `LOGGER_CHANNEL_CAPACITY`
+    /// - `LOGGER_CONSOLE_ANSI`: `auto`, `always`, `never`, or a boolean
     /// - `LOGGER_CONSOLE_ENABLED`
-    /// - `LOGGER_CONSOLE_LEVEL`: console filter directives, overrides `RUST_LOG`
+    /// - `LOGGER_CONSOLE_FILTER`: console filter directives, overrides `RUST_LOG`
     /// - `LOGGER_CONSOLE_STREAM`: `stdout` or `stderr`
     /// - `LOGGER_CONSOLE_TARGET`
-    /// - `LOGGER_CONSOLE_ANSI`: `auto`, `always`, `never`, or a boolean
-    /// - `LOGGER_FILE_LEVEL`: file filter directives, overrides `RUST_LOG`
-    /// - `LOGGER_LOG_DIR`
-    /// - `LOGGER_LOG_TO_FILE`
+    /// - `LOGGER_FILE_DIR`: required when `LOGGER_FILE_ENABLED` is true
+    /// - `LOGGER_FILE_ENABLED`
+    /// - `LOGGER_FILE_FILTER`: file filter directives, overrides `RUST_LOG`
     /// - `LOGGER_QUEUE_FULL_POLICY`
     ///
     /// Filter directives are validated by [`init_logger`](super::init_logger).
@@ -250,7 +250,7 @@ impl LoggerInitOptions {
             Some(LoggerConsoleOutputOptions {
                 ansi: env.ansi_mode()?,
                 filter: env
-                    .value(ENV_LOGGER_CONSOLE_LEVEL)
+                    .value(ENV_LOGGER_CONSOLE_FILTER)
                     .unwrap_or_else(|| default_filter.clone()),
                 include_target: env.bool(ENV_LOGGER_CONSOLE_TARGET, true)?,
                 stream: env.console_stream()?,
@@ -260,13 +260,13 @@ impl LoggerInitOptions {
         };
 
         let file_output = if env.bool(ENV_LOGGER_FILE_ENABLED, false)? {
-            let Some(base_dir) = env.value(ENV_LOGGER_FILE_BASE_DIR) else {
-                bail!("{ENV_LOGGER_FILE_BASE_DIR} is required when file logging is enabled");
+            let Some(base_dir) = env.value(ENV_LOGGER_FILE_DIR) else {
+                bail!("{ENV_LOGGER_FILE_DIR} is required when file logging is enabled");
             };
 
             Some(LoggerFileOutputOptions {
                 base_dir: Path::from(base_dir),
-                filter: env.value(ENV_LOGGER_FILE_LEVEL).unwrap_or(default_filter),
+                filter: env.value(ENV_LOGGER_FILE_FILTER).unwrap_or(default_filter),
             })
         } else {
             None
@@ -379,8 +379,8 @@ mod tests {
             (ENV_LOG_FILTER, "warn,app=debug"),
             (ENV_LOGGER_CONSOLE_STREAM, "stderr"),
             (ENV_LOGGER_FILE_ENABLED, "true"),
-            (ENV_LOGGER_FILE_BASE_DIR, "env-logs"),
-            (ENV_LOGGER_FILE_LEVEL, "trace"),
+            (ENV_LOGGER_FILE_DIR, "env-logs"),
+            (ENV_LOGGER_FILE_FILTER, "trace"),
         ])?;
 
         let console = options
@@ -405,10 +405,7 @@ mod tests {
         assert_eq!(console.stream, LoggerConsoleStream::Stdout);
         assert!(options.file_output.is_none());
 
-        let file_pairs = [
-            (ENV_LOGGER_FILE_ENABLED, "true"),
-            (ENV_LOGGER_FILE_BASE_DIR, "env-logs"),
-        ];
+        let file_pairs = [(ENV_LOGGER_FILE_ENABLED, "true"), (ENV_LOGGER_FILE_DIR, "env-logs")];
         let options = from_pairs_with_default_filter(&file_pairs, "warn,app=info")?;
         let console = options
             .console_output
