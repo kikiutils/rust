@@ -189,13 +189,13 @@ logger = [
 signal = [
   "dep:anyhow",
   "dep:tokio",
+  "tokio/signal",
 ]
 
 task = [
-  "dep:anyhow",
   "dep:tokio",
   "dep:tokio-util",
-  "fx-collections",
+  "tokio/time",
 ]
 
 # =============================================================================
@@ -336,7 +336,6 @@ tikv-jemallocator = { version = "0.7.0", features = ["background_threads_runtime
 
 # Test/example/bench-only dependencies.
 [dev-dependencies]
-criterion = { version = "0.8.2", features = ["async_tokio"] }
 log = "0.4.35"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "time"] }
 
@@ -409,11 +408,11 @@ tokio = { version = "1.54.1", features = ["rt-multi-thread", "time"] }
 # path = "tests/integration.rs"
 # required-features = []
 
-[[bench]]
-name = "task_manager"
-path = "benches/task_manager.rs"
-harness = false
-required-features = ["task"]
+# [[bench]]
+# name = "benchmark-name"
+# path = "benches/benchmark-name.rs"
+# harness = false
+# required-features = []
 
 # =============================================================================
 # Profiles

@@ -29,7 +29,10 @@ pub trait AsyncServiceLifecycle: AsyncServiceLifecycleHooks + Send + Sync {
             match self.state().get() {
                 ServiceState::CleanupFailed => bail!("cannot start service after cleanup failed; retry cleanup first"),
                 ServiceState::Running | ServiceState::Starting | ServiceState::Stopping => return Ok(()),
-                ServiceState::Stopped => self.state().store(ServiceState::Starting),
+                ServiceState::Stopped => {
+                    self.task_manager().reopen();
+                    self.state().store(ServiceState::Starting);
+                },
             }
 
             let cancel_guard = CleanupFailedOnCancel::new(self.state());
@@ -112,8 +115,7 @@ impl<'a> CleanupFailedOnCancel<'a> {
 /// Cancels managed tasks and waits for them to exit before cleaning up, so tasks never observe
 /// resources that are already being torn down.
 async fn join_tasks_then_cleanup_and_set_state<T: AsyncServiceLifecycle + ?Sized>(service: &T) -> Result<()> {
-    service.task_manager().cancel_existing();
-    service.task_manager().join_existing().await;
+    service.task_manager().shutdown().await;
     let cleanup_result = service.cleanup_resources().await;
     let cleanup_state = match cleanup_result {
         Ok(()) => ServiceState::Stopped,

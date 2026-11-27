@@ -1,55 +1,43 @@
 use std::{
     future::Future,
-    sync::Arc,
+    sync::{
+        Mutex,
+        MutexGuard,
+        PoisonError,
+    },
+    time::Duration,
 };
 
-use tokio::task::AbortHandle;
-use tokio_util::sync::CancellationToken;
-
-use super::{
-    TaskId,
-    managed::ManagedTask,
+use tokio::{
+    task::JoinHandle,
+    time::error::Elapsed,
 };
-use crate::types::fx_collections::FxDashMap;
-
-// Enums
-enum DrainAction {
-    Abort,
-    Cancel,
-    None,
-}
+use tokio_util::{
+    sync::CancellationToken,
+    task::TaskTracker,
+};
 
 // Structs
 
-/// Lives inside the spawned future, so it runs when the task completes, panics, is aborted or is
-/// dropped by runtime shutdown. Tokio sets the task ID while dropping a task's future, so
-/// [`try_id`] identifies the task here.
-struct CleanupOnDrop {
-    completion: CancellationToken,
-    entries: Arc<FxDashMap<TaskId, ManagedTaskEntry>>,
-}
-
-impl Drop for CleanupOnDrop {
-    fn drop(&mut self) {
-        // Cancel before removing: `spawn_inner` relies on this order to detect tasks that finished
-        // before their entry was registered.
-        self.completion.cancel();
-        if let Some(id) = tokio::task::try_id() {
-            self.entries.remove(&id);
-        }
-    }
-}
-
+/// Tracks spawned tasks and hands each [`spawn_with_token`](Self::spawn_with_token) task a child of
+/// one root token, so [`cancel`](Self::cancel) also reaches tasks spawned afterwards until
+/// [`reopen`](Self::reopen).
+///
+/// Waiting from a task spawned by this manager never completes, because the manager waits for that
+/// task too.
 #[derive(Debug)]
-struct ManagedTaskEntry {
-    abort: AbortHandle,
-    cancel_token: Option<CancellationToken>,
-    completion: CancellationToken,
+pub struct TaskManager {
+    /// Never cancelled unless it is the parent passed to [`with_parent`](Self::with_parent); every root
+    /// is its child.
+    base: CancellationToken,
+    root: Mutex<CancellationToken>,
+    tracker: TaskTracker,
 }
 
-#[derive(Debug, Default)]
-pub struct TaskManager {
-    entries: Arc<FxDashMap<TaskId, ManagedTaskEntry>>,
+impl Default for TaskManager {
+    fn default() -> Self {
+        Self::from_base(CancellationToken::new())
+    }
 }
 
 impl TaskManager {
@@ -57,176 +45,101 @@ impl TaskManager {
         Self::default()
     }
 
-    // Private methods
-    /// Applies `action` to every registered task except the calling one and returns their completion
-    /// tokens. Skipping the caller keeps a managed task from aborting or cancelling itself, and from
-    /// waiting for itself forever.
-    fn apply_to_existing(&self, action: &DrainAction) -> Vec<CancellationToken> {
-        let current_id = tokio::task::try_id();
-        let mut completions = Vec::with_capacity(self.entries.len());
-
-        for entry in self.entries.iter() {
-            if current_id == Some(*entry.key()) {
-                continue;
-            }
-
-            match action {
-                DrainAction::Abort => entry.abort.abort(),
-                DrainAction::Cancel => {
-                    if let Some(cancel_token) = &entry.cancel_token {
-                        cancel_token.cancel();
-                    }
-                },
-                DrainAction::None => {},
-            }
-
-            completions.push(entry.completion.clone());
-        }
-
-        completions
-    }
-
-    async fn drain_and_join_existing(&self, action: DrainAction) {
-        let completions = self.apply_to_existing(&action);
-
-        for completion in completions {
-            completion.cancelled().await;
-        }
-    }
-
-    fn spawn_inner<F, T>(&self, future: F, cancel_token: Option<CancellationToken>) -> ManagedTask<T>
-    where
-        F: Future<Output = T> + Send + 'static,
-        T: Send + 'static,
-    {
-        let completion = CancellationToken::new();
-        let cleanup = CleanupOnDrop {
-            completion: completion.clone(),
-            entries: Arc::clone(&self.entries),
-        };
-
-        let handle = tokio::task::spawn(async move {
-            let _cleanup = cleanup;
-            future.await
-        });
-
-        let task_id = handle.id();
-        self.entries.insert(
-            task_id,
-            ManagedTaskEntry {
-                abort: handle.abort_handle(),
-                cancel_token: cancel_token.clone(),
-                completion: completion.clone(),
-            },
-        );
-
-        // The task may have finished before it was registered, in which case its cleanup found no
-        // entry to remove. Cleanup cancels `completion` before removing, so either this check sees the
-        // cancellation or the cleanup's removal runs after the insert above.
-        if completion.is_cancelled() {
-            self.entries.remove(&task_id);
-        }
-
-        ManagedTask::new(task_id, handle, cancel_token)
+    /// Cancelling `parent` cancels every task token, including tokens handed out after a
+    /// [`reopen`](Self::reopen).
+    pub fn with_parent(parent: &CancellationToken) -> Self {
+        Self::from_base(parent.clone())
     }
 
     // Public methods
-    #[inline]
-    pub fn abort(&self, id: TaskId) -> bool {
-        self.entries.get(&id).is_some_and(|kv| {
-            kv.abort.abort();
-            true
-        })
+    pub fn cancel(&self) {
+        self.root().cancel();
     }
 
-    /// Aborts every registered task.
-    ///
-    /// When called from a task managed by this manager, the calling task is skipped.
-    pub fn abort_existing(&self) {
-        self.apply_to_existing(&DrainAction::Abort);
-    }
-
-    /// Aborts every registered task and waits for them to finish.
-    ///
-    /// When called from a task managed by this manager, the calling task is skipped.
-    pub async fn abort_and_join_existing(&self) {
-        self.drain_and_join_existing(DrainAction::Abort).await;
-    }
-
-    #[inline]
-    pub fn cancel(&self, id: TaskId) -> bool {
-        self.entries.get(&id).is_some_and(|kv| {
-            kv.cancel_token.as_ref().is_some_and(|t| {
-                t.cancel();
-                true
-            })
-        })
-    }
-
-    /// Cancels the token of every registered task.
-    ///
-    /// When called from a task managed by this manager, the calling task is skipped.
-    pub fn cancel_existing(&self) {
-        self.apply_to_existing(&DrainAction::Cancel);
-    }
-
-    /// Cancels the token of every registered task and waits for them to finish.
-    ///
-    /// When called from a task managed by this manager, the calling task is skipped.
-    pub async fn cancel_and_join_existing(&self) {
-        self.drain_and_join_existing(DrainAction::Cancel).await;
-    }
-
-    #[inline]
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.tracker.is_empty()
     }
 
-    /// Waits for the task with `id` to finish. Returns `false` if it is not registered or is the
-    /// calling task itself, which would otherwise wait for itself forever.
-    pub async fn join(&self, id: TaskId) -> bool {
-        if tokio::task::try_id() == Some(id) {
-            return false;
-        }
-
-        let completion = self.entries.get(&id).map(|entry| entry.completion.clone());
-        let Some(completion) = completion else {
-            return false;
-        };
-
-        completion.cancelled().await;
-        true
-    }
-
-    /// Waits for every currently registered task to finish.
-    ///
-    /// When called from a task managed by this manager, the calling task is skipped.
-    pub async fn join_existing(&self) {
-        self.drain_and_join_existing(DrainAction::None).await;
-    }
-
-    #[inline]
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.tracker.len()
     }
 
-    #[inline]
-    pub fn spawn<F, T>(&self, future: F) -> ManagedTask<T>
-    where
-        F: Future<Output = T> + Send + 'static,
-        T: Send + 'static,
-    {
-        self.spawn_inner(future, None)
+    /// Hands out fresh tokens again after [`cancel`](Self::cancel); does nothing if the root token is
+    /// not cancelled. Calling it while a shutdown is still waiting lets new tasks keep that shutdown
+    /// waiting.
+    pub fn reopen(&self) {
+        let mut root = self.root();
+        if root.is_cancelled() {
+            *root = self.base.child_token();
+        }
     }
 
-    #[inline]
-    pub fn spawn_with_token<F, Fut, T>(&self, f: F) -> ManagedTask<T>
+    pub async fn shutdown(&self) {
+        self.cancel();
+        self.wait().await;
+    }
+
+    /// On timeout the remaining tasks keep running and stay tracked.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the runtime has no time driver, before any task is cancelled.
+    pub async fn shutdown_with_timeout(&self, timeout: Duration) -> Result<(), Elapsed> {
+        // `timeout` arms its timer here, while `wait` only starts observing the tracker once polled,
+        // after the cancel.
+        let wait = tokio::time::timeout(timeout, self.wait());
+        self.cancel();
+        wait.await
+    }
+
+    /// The task gets no cancel signal, but [`wait`](Self::wait) and [`shutdown`](Self::shutdown) still
+    /// wait for it.
+    pub fn spawn<F>(&self, future: F) -> JoinHandle<F::Output>
     where
-        F: FnOnce(CancellationToken) -> Fut + Send + 'static,
-        Fut: Future<Output = T> + Send + 'static,
-        T: Send + 'static,
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
     {
-        let cancel_token = CancellationToken::new();
-        self.spawn_inner(f(cancel_token.clone()), Some(cancel_token))
+        self.tracker.spawn(future)
+    }
+
+    pub fn spawn_with_token<F, Fut>(&self, f: F) -> JoinHandle<Fut::Output>
+    where
+        F: FnOnce(CancellationToken) -> Fut,
+        Fut: Future + Send + 'static,
+        Fut::Output: Send + 'static,
+    {
+        let cancel_token = self.root().child_token();
+        self.tracker.spawn(f(cancel_token))
+    }
+
+    /// Returns a child of the current root, cancelled by [`cancel`](Self::cancel) or the parent; a later
+    /// [`reopen`](Self::reopen) does not revive it.
+    pub fn token(&self) -> CancellationToken {
+        self.root().child_token()
+    }
+
+    /// Waits until no task is running, including tasks spawned while waiting; it returns once the manager
+    /// is empty, even if a task is spawned right after.
+    pub async fn wait(&self) {
+        self.tracker.wait().await;
+    }
+
+    // Private methods
+    fn from_base(base: CancellationToken) -> Self {
+        let root = base.child_token();
+        // A closed tracker still accepts spawns; staying closed makes `wait` mean "until empty".
+        let tracker = TaskTracker::new();
+        tracker.close();
+
+        Self {
+            base,
+            root: Mutex::new(root),
+            tracker,
+        }
+    }
+
+    fn root(&self) -> MutexGuard<'_, CancellationToken> {
+        // The guarded token stays valid even if a holder panicked.
+        self.root.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }

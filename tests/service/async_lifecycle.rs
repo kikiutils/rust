@@ -221,6 +221,29 @@ async fn execute_stop_retries_cleanup_after_cleanup_failed() {
 }
 
 #[tokio::test]
+async fn restart_after_stop_hands_out_live_tokens() {
+    let service = TestService::new(ServiceState::Stopped);
+    service.execute_start(async { Result::<()>::Ok(()) }).await.unwrap();
+    service.execute_stop().await.unwrap();
+
+    let token_cancelled = Arc::new(AtomicBool::new(true));
+    let reported_token_cancelled = Arc::clone(&token_cancelled);
+    service
+        .execute_start(async {
+            service.task_manager.spawn_with_token(async move |cancel_token| {
+                reported_token_cancelled.store(cancel_token.is_cancelled(), Ordering::SeqCst);
+            });
+
+            Result::<()>::Ok(())
+        })
+        .await
+        .unwrap();
+
+    service.task_manager.wait().await;
+    assert!(!token_cancelled.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
 async fn cancelled_start_requires_cleanup_before_restart() {
     let service = TestService::new(ServiceState::Stopped);
 
@@ -245,13 +268,13 @@ async fn cancelled_start_requires_cleanup_before_restart() {
 async fn cancelled_stop_lets_the_next_stop_retry_cleanup() {
     let service = TestService::new(ServiceState::Running);
 
-    // A task without a cancel token keeps `join_existing` waiting until it is aborted.
-    service.task_manager.spawn(pending::<()>());
+    // A task without a cancel token keeps the stop waiting until it is aborted.
+    let stuck_task = service.task_manager.spawn(pending::<()>());
 
     assert!(timeout(CANCEL_AFTER, service.execute_stop()).await.is_err());
     assert_eq!(service.state.get(), ServiceState::CleanupFailed);
 
-    service.task_manager.abort_existing();
+    stuck_task.abort();
     service.execute_stop().await.unwrap();
 
     assert_eq!(service.state.get(), ServiceState::Stopped);
