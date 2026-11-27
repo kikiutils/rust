@@ -184,12 +184,12 @@ logger = [
 ]
 
 signal = [
-  "dep:anyhow",
   "dep:tokio",
   "tokio/signal",
 ]
 
 task = [
+  "dep:anyhow",
   "dep:tokio",
   "dep:tokio-util",
   "tokio/time",

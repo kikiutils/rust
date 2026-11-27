@@ -118,12 +118,14 @@ async fn clones_share_tasks_and_tokens() {
 
 #[cfg(feature = "signal")]
 #[tokio::test]
-async fn shutdown_signal_listener_does_not_hold_up_shutdown() {
+async fn shutdown_signal_wait_ends_when_the_manager_is_cancelled() {
     let manager = TaskManager::new();
-    let listener = manager.cancel_on_shutdown_signal();
+    let waiting_manager = manager.clone();
+    let wait = tokio::task::spawn(async move { waiting_manager.cancel_on_shutdown_signal().await });
+    tokio::task::yield_now().await;
 
-    timeout(COMPLETION_TIMEOUT, manager.shutdown()).await.unwrap();
-    assert!(!listener.await.unwrap().unwrap());
+    manager.cancel();
+    assert_eq!(timeout(COMPLETION_TIMEOUT, wait).await.unwrap().unwrap().unwrap(), None);
 }
 
 #[tokio::test]

@@ -1,14 +1,48 @@
-use anyhow::Result;
+use std::{
+    fmt,
+    io,
+};
+
 use tokio::{
     select,
     signal::ctrl_c,
 };
 
-/// Waits until the process receives a shutdown signal.
+// Enums
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ShutdownSignal {
+    /// SIGINT on Unix, Ctrl+C on Windows.
+    Interrupt,
+    /// SIGTERM, Unix only.
+    Terminate,
+    /// Windows only.
+    CtrlBreak,
+    /// The console window was closed, Windows only.
+    CtrlClose,
+    /// Windows only, and only delivered to services.
+    CtrlShutdown,
+}
+
+impl fmt::Display for ShutdownSignal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Interrupt if cfg!(windows) => "Ctrl+C",
+            Self::Interrupt => "SIGINT",
+            Self::Terminate => "SIGTERM",
+            Self::CtrlBreak => "Ctrl+Break",
+            Self::CtrlClose => "Ctrl+Close",
+            Self::CtrlShutdown => "Ctrl+Shutdown",
+        })
+    }
+}
+
+// Functions
+
+/// Waits until the process receives a shutdown signal and returns which one.
 ///
-/// Listens for SIGINT and SIGTERM on Unix, and for Ctrl+C, Ctrl+Break, console close and system
-/// shutdown on Windows. Returns an error if a signal handler cannot be registered.
-pub async fn wait_for_shutdown_signal() -> Result<()> {
+/// Registers the handlers when first polled, and fails if one cannot be registered.
+pub async fn wait_for_shutdown_signal() -> io::Result<ShutdownSignal> {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{
@@ -18,8 +52,8 @@ pub async fn wait_for_shutdown_signal() -> Result<()> {
 
         let mut sigterm = signal(SignalKind::terminate())?;
         select! {
-            result = ctrl_c() => result?,
-            _ = sigterm.recv() => {},
+            result = ctrl_c() => result.map(|()| ShutdownSignal::Interrupt),
+            _ = sigterm.recv() => Ok(ShutdownSignal::Terminate),
         }
     }
 
@@ -35,12 +69,10 @@ pub async fn wait_for_shutdown_signal() -> Result<()> {
         let mut ctrl_close = ctrl_close()?;
         let mut ctrl_shutdown = ctrl_shutdown()?;
         select! {
-            result = ctrl_c() => result?,
-            _ = ctrl_break.recv() => {},
-            _ = ctrl_close.recv() => {},
-            _ = ctrl_shutdown.recv() => {},
+            result = ctrl_c() => result.map(|()| ShutdownSignal::Interrupt),
+            _ = ctrl_break.recv() => Ok(ShutdownSignal::CtrlBreak),
+            _ = ctrl_close.recv() => Ok(ShutdownSignal::CtrlClose),
+            _ = ctrl_shutdown.recv() => Ok(ShutdownSignal::CtrlShutdown),
         }
     }
-
-    Ok(())
 }

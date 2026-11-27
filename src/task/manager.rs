@@ -54,31 +54,24 @@ impl TaskManager {
         self.root().cancel();
     }
 
-    /// Spawns a task that cancels this manager when the process receives a shutdown signal, see
-    /// [`wait_for_shutdown_signal`](crate::signal::wait_for_shutdown_signal).
+    /// Waits until the manager is cancelled or the process receives a shutdown signal, see
+    /// [`wait_for_shutdown_signal`](crate::signal::wait_for_shutdown_signal), and cancels it on a
+    /// signal. Returns the signal, or `None` if the manager was cancelled otherwise.
     ///
-    /// The task returns `true` if a signal cancelled the manager, and ends with `false` once the
-    /// manager is cancelled otherwise; it does not follow a later [`reopen`](Self::reopen). The signal
-    /// handlers are registered when the task first runs, not before this returns; if registering
-    /// fails, the task returns the error without cancelling.
-    ///
-    /// Tokio keeps the handlers registered until the process exits, so after the task ends these
-    /// signals no longer terminate the process and are ignored unless something else listens; call
-    /// this again after a `reopen`.
+    /// On Unix, Tokio keeps the handlers registered until the process exits, so once this returns
+    /// these signals no longer terminate the process and are ignored unless something else listens.
     #[cfg(feature = "signal")]
-    pub fn cancel_on_shutdown_signal(&self) -> tokio::task::JoinHandle<Result<bool>> {
+    pub async fn cancel_on_shutdown_signal(&self) -> std::io::Result<Option<crate::signal::ShutdownSignal>> {
         let root = self.root().clone();
-        self.spawn(async move {
-            tokio::select! {
-                biased;
-                () = root.cancelled() => Ok(false),
-                result = crate::signal::wait_for_shutdown_signal() => {
-                    result?;
-                    root.cancel();
-                    Ok(true)
-                },
-            }
-        })
+        tokio::select! {
+            biased;
+            () = root.cancelled() => Ok(None),
+            result = crate::signal::wait_for_shutdown_signal() => {
+                let signal = result?;
+                root.cancel();
+                Ok(Some(signal))
+            },
+        }
     }
 
     pub fn is_cancelled(&self) -> bool {
