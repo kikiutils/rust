@@ -1,3 +1,5 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 pub mod atomic;
 #[cfg(feature = "global-allocator")]
 pub mod global_allocator;
@@ -7,6 +9,5 @@ pub mod logger;
 pub mod service;
 #[cfg(feature = "signal")]
 pub mod signal;
-#[cfg(feature = "task")]
 pub mod task;
 pub mod types;
