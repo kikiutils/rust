@@ -29,10 +29,6 @@ No features are enabled by default.
 | `signal` | `wait_for_shutdown_signal` for the platform's shutdown signals |
 | `task` | `TaskManager`, which tracks Tokio tasks and cancels them on shutdown |
 
-## Platform Support
-
-Unix and Windows. `global-allocator` uses jemalloc on Linux, mimalloc on Windows, and the system allocator elsewhere; `signal` listens for SIGINT and SIGTERM on Unix, and Ctrl+C, Ctrl+Break, Ctrl+Close and Ctrl+Shutdown on Windows.
-
 ## License
 
 [MIT License](./LICENSE)
