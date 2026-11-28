@@ -8,7 +8,6 @@ use tokio::{
     signal::ctrl_c,
 };
 
-// Enums
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ShutdownSignal {
@@ -36,8 +35,6 @@ impl fmt::Display for ShutdownSignal {
         })
     }
 }
-
-// Functions
 
 /// Registers the handlers when first polled, and fails if one cannot be registered.
 ///

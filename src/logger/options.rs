@@ -10,7 +10,6 @@ use anyhow::{
 };
 use pathkit::Path;
 
-// Constants/Statics
 const DEFAULT_QUEUE_CAPACITY: NonZeroUsize = match NonZeroUsize::new(8192) {
     Some(capacity) => capacity,
     None => panic!("default queue capacity must be non-zero"),
@@ -31,7 +30,6 @@ const ENV_LOGGER_QUEUE_FULL_POLICY: &str = "LOGGER_QUEUE_FULL_POLICY";
 const ENV_LOGGER_TIMESTAMP_OFFSET: &str = "LOGGER_TIMESTAMP_OFFSET";
 const ENV_LOGGER_TIMESTAMP_TIME_ZONE: &str = "LOGGER_TIMESTAMP_TIME_ZONE";
 
-// Enums
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LoggerAnsiMode {
@@ -71,8 +69,6 @@ pub enum LoggerTimeZone {
     Utc,
 }
 
-// Structs
-
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct LoggerConsoleOutputOptions {
@@ -95,7 +91,6 @@ impl Default for LoggerConsoleOutputOptions {
 }
 
 impl LoggerConsoleOutputOptions {
-    // Public methods
     #[must_use]
     pub fn with_ansi(mut self, ansi: LoggerAnsiMode) -> Self {
         self.ansi = ansi;
@@ -140,7 +135,6 @@ impl LoggerFileOutputOptions {
         }
     }
 
-    // Public methods
     #[must_use]
     pub fn with_filter(mut self, filter: impl Into<String>) -> Self {
         self.filter = filter.into();
@@ -170,7 +164,6 @@ impl Default for LoggerQueueOptions {
 impl LoggerQueueOptions {
     pub const MAX_CAPACITY: usize = 1_048_576;
 
-    // Public methods
     #[must_use]
     pub fn with_capacity(mut self, capacity: NonZeroUsize) -> Self {
         self.capacity = capacity;
@@ -205,8 +198,6 @@ impl Default for LoggerInitOptions {
 }
 
 impl LoggerInitOptions {
-    // Public methods
-
     #[must_use]
     pub fn with_console_output(mut self, console_output: LoggerConsoleOutputOptions) -> Self {
         self.console_output = Some(console_output);
@@ -272,7 +263,6 @@ impl LoggerInitOptions {
         Self::from_lookup(|key| env::var(key).ok(), default_filter)
     }
 
-    // Private methods
     fn from_lookup(lookup: impl Fn(&str) -> Option<String>, default_filter: &str) -> Result<Self> {
         let env = EnvReader(lookup);
         let default_filter = env.value(ENV_LOG_FILTER).unwrap_or_else(|| default_filter.to_owned());
@@ -352,7 +342,6 @@ pub struct LoggerTimestampOptions {
 }
 
 impl LoggerTimestampOptions {
-    // Public methods
     #[must_use]
     pub fn with_include_offset(mut self, include_offset: bool) -> Self {
         self.include_offset = include_offset;
@@ -388,7 +377,6 @@ impl<F: Fn(&str) -> Option<String>> EnvReader<F> {
     }
 }
 
-// Functions
 fn parse_ansi_mode(value: &str) -> Option<LoggerAnsiMode> {
     match value {
         "always" => Some(LoggerAnsiMode::Always),

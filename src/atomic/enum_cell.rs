@@ -13,8 +13,6 @@ use anyhow::{
     ensure,
 };
 
-// Structs
-
 /// `Into<u8>` and `TryFrom<u8>` must round-trip every value; otherwise every method that returns the
 /// stored value as `T`, including the error paths of [`ensure`](Self::ensure) and
 /// [`try_transition`](Self::try_transition), panics.
@@ -64,7 +62,6 @@ impl<T: Copy + Into<u8> + TryFrom<u8>> AtomicEnumCell<T> {
         }
     }
 
-    // Public methods
     pub fn ensure<M, F>(&self, expected: T, message: F) -> Result<()>
     where
         M: fmt::Debug + fmt::Display + Send + Sync + 'static,
@@ -110,7 +107,6 @@ impl<T: Copy + Into<u8> + TryFrom<u8>> AtomicEnumCell<T> {
             .map_err(Self::decode)
     }
 
-    // Private methods
     fn decode(raw: u8) -> T {
         #[expect(
             clippy::expect_used,

@@ -79,8 +79,6 @@ use self::{
 
 type BoxedLayer<S> = Box<dyn Layer<S> + Send + Sync + 'static>;
 
-// Structs
-
 /// [`DefaultFields`] under a distinct type per output. Formatted span fields are cached by formatter type,
 /// so a shared type would let one layer reuse fields formatted with another layer's ANSI setting,
 /// including a `fmt` layer composed with [`build_logger`].
@@ -193,7 +191,6 @@ impl Drop for LoggerGuard {
 }
 
 impl LoggerGuard {
-    // Public methods
     /// Returns the total of events discarded by each output because its queue was full or its worker had
     /// stopped; an event dropped by both outputs counts twice.
     pub fn dropped_count(&self) -> u64 {
@@ -226,8 +223,6 @@ impl LoggerGuard {
     }
 }
 
-// Functions
-
 /// Builds the logger layer and spawns its workers without installing a subscriber.
 ///
 /// The layer works in any subscriber built on [`Registry`], since its outputs use per-layer filters.
@@ -241,32 +236,6 @@ impl LoggerGuard {
 /// Fails before spawning any worker when the queue capacity is above
 /// [`LoggerQueueOptions::MAX_CAPACITY`] or a filter is invalid, and fails when the file output cannot
 /// create its base directory or `_fallback.log`.
-///
-/// # Example
-///
-/// ```no_run
-/// use kikiutils::logger::{
-///     build_logger,
-///     options::LoggerInitOptions,
-/// };
-/// use tracing_subscriber::{
-///     layer::SubscriberExt,
-///     util::SubscriberInitExt,
-/// };
-///
-/// # fn main() -> anyhow::Result<()> {
-/// let options = LoggerInitOptions::from_env()?.without_console_output();
-/// let (logger_layer, logger_guard) = build_logger(options)?;
-/// tracing_subscriber::registry()
-///     .with(tracing_subscriber::fmt::layer().compact())
-///     .with(logger_layer)
-///     .try_init()?;
-///
-/// tracing::info!("application started");
-/// logger_guard.shutdown()?;
-/// # Ok(())
-/// # }
-/// ```
 pub fn build_logger<S>(options: LoggerInitOptions) -> Result<(BoxedLayer<S>, LoggerGuard)>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
@@ -346,22 +315,6 @@ where
 /// Fails without creating directories or workers when a default subscriber is already set, either
 /// globally or scoped on the calling thread. Also fails when a `log` logger is already set; by then the file
 /// output may have created its directories, and the workers stop with the dropped guard.
-///
-/// # Example
-///
-/// ```no_run
-/// use kikiutils::logger::{
-///     init_logger,
-///     options::LoggerInitOptions,
-/// };
-///
-/// # fn main() -> anyhow::Result<()> {
-/// let logger_guard = init_logger(LoggerInitOptions::default())?;
-/// tracing::info!("application started");
-/// logger_guard.shutdown()?;
-/// # Ok(())
-/// # }
-/// ```
 pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
     // `tracing::dispatcher::has_been_set` also turns true after any scoped default has ended.
     if dispatcher::get_default(|dispatch| !dispatch.is::<NoSubscriber>()) {

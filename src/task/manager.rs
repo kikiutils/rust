@@ -15,7 +15,6 @@ use tokio_util::{
     task::TaskTracker,
 };
 
-// Enums
 #[cfg(feature = "signal")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -24,8 +23,6 @@ pub enum ShutdownOutcome {
     TimedOut,
     Forced(crate::signal::ShutdownSignal),
 }
-
-// Structs
 
 /// Tracks spawned tasks and hands each [`spawn_with_token`](Self::spawn_with_token) task a child of
 /// one root token, so [`cancel`](Self::cancel) also reaches tasks spawned afterwards until
@@ -59,7 +56,6 @@ impl TaskManager {
         Self::from_base(parent.clone())
     }
 
-    // Public methods
     pub fn cancel(&self) {
         self.root().cancel();
     }
@@ -194,7 +190,6 @@ impl TaskManager {
         self.tracker.wait().await;
     }
 
-    // Private methods
     fn from_base(base: CancellationToken) -> Self {
         let root = base.child_token();
         // A closed tracker still accepts spawns; staying closed makes `wait` mean "until empty".

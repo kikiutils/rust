@@ -17,10 +17,8 @@ use kikiutils::{
 };
 use tokio::time::timeout;
 
-// Constants/Statics
 const COMPLETION_TIMEOUT: Duration = Duration::from_secs(5);
 
-// Functions
 fn send_sigterm() {
     let pid = process::id().to_string();
     assert!(
@@ -31,8 +29,6 @@ fn send_sigterm() {
             .success()
     );
 }
-
-// Tests
 
 /// One test, because tests run in parallel and the signal would also reach the other one.
 #[tokio::test]

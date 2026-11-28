@@ -19,7 +19,6 @@ use rustc_hash::FxHashMap;
 
 use super::options::LoggerConsoleStream;
 
-// Constants/Statics
 /// One buffer serves every console event, so it is sized for full batches: compared with std's 8 KiB default
 /// it cuts write syscalls about eightfold and is faster for long lines.
 const CONSOLE_BUFFER_CAPACITY: usize = 64 * 1024;
@@ -29,7 +28,6 @@ const FALLBACK_FILE_INDEX: usize = 0;
 const FALLBACK_LOG_KEY: &str = "_fallback";
 pub(super) const TARGET_SEPARATOR: u8 = 0;
 
-// Traits
 pub(super) trait LogSink: Send + 'static {
     fn flush(&mut self);
 
@@ -40,7 +38,6 @@ pub(super) trait LogSink: Send + 'static {
     }
 }
 
-// Structs
 pub(super) struct ConsoleSink {
     writer: BufWriter<Box<dyn Write + Send>>,
 }
@@ -117,7 +114,6 @@ impl FileSink {
         })
     }
 
-    // Private methods
     fn write_line(&mut self, target: &[u8], line: &[u8]) {
         let index = match self.target_indexes.get(target) {
             Some(&index) => index,
@@ -148,7 +144,6 @@ impl FileSink {
     }
 }
 
-// Functions
 fn open_file(path: &Path) -> Result<BufWriter<File>> {
     path.create_parent_dir_all_sync()?;
     let file = OpenOptions::new().create(true).append(true).open(path)?;
@@ -232,5 +227,7 @@ mod tests {
         // Windows separators and drive prefixes must not escape the segment either.
         assert_eq!(target_to_key("..\\x::C:"), "_x/C_");
         assert_eq!(target_to_key("...::"), "_default");
+        assert_eq!(target_to_key(""), "_default");
+        assert_eq!(target_to_key("日誌::é"), "__/_");
     }
 }

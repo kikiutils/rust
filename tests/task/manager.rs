@@ -8,11 +8,9 @@ use kikiutils::task::manager::TaskManager;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
-// Constants/Statics
 const COMPLETION_TIMEOUT: Duration = Duration::from_secs(5);
 const PENDING_PROBE: Duration = Duration::from_millis(50);
 
-// Tests
 #[tokio::test]
 async fn wait_returns_once_every_task_finished() {
     let manager = TaskManager::new();

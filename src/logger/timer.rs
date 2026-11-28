@@ -23,7 +23,6 @@ use super::options::{
     LoggerTimestampOptions,
 };
 
-// Constants/Statics
 const OFFSET_FORMAT: &[BorrowedFormatItem<'static>] =
     format_description!("[offset_hour sign:mandatory]:[offset_minute]");
 
@@ -39,8 +38,6 @@ thread_local! {
         })
     };
 }
-
-// Structs
 
 /// Formats `YYYY-MM-DD HH:MM:SS.ffffff`, optionally followed by the UTC offset.
 ///
@@ -68,7 +65,6 @@ impl LoggerTimer {
         }
     }
 
-    // Private methods
     fn offset_at(self, utc: OffsetDateTime) -> UtcOffset {
         match self.time_zone {
             LoggerTimeZone::Local => UtcOffset::local_offset_at(utc).unwrap_or(self.fallback_offset),

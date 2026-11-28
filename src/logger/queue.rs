@@ -15,15 +15,12 @@ use tracing_subscriber::fmt::MakeWriter;
 
 use super::options::LoggerQueueFullPolicy;
 
-// Enums
 #[derive(Debug)]
 pub(super) enum LoggerCommand {
     Flush(std::sync::mpsc::SyncSender<()>),
     Shutdown,
     Write(Vec<u8>),
 }
-
-// Structs
 
 #[derive(Debug)]
 pub(super) struct QueueMakeWriter {

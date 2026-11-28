@@ -33,11 +33,9 @@ use super::{
     timer::LoggerTimer,
 };
 
-// Constants/Statics
 /// Commands handled before a forced flush, so a queue that never empties still reaches the sinks.
 const MAX_BATCH_COMMANDS: usize = 1024;
 
-// Structs
 #[derive(Debug)]
 pub(super) struct LoggerWorkerGuard {
     dropped: Arc<AtomicU64>,
@@ -105,7 +103,6 @@ impl DroppedNotifier {
     }
 }
 
-// Functions
 pub(super) fn spawn_worker(
     name: &str,
     sink: impl LogSink,
