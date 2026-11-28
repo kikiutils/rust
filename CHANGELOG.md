@@ -1,5 +1,50 @@
 # Changelog
 
+## v1.0.0
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.14.0...v1.0.0)
+
+### 💅 Refactors
+
+- **logger:** Use std's default file buffer and document the console buffer size ([15d53bc](https://github.com/kikiutils/rust/commit/15d53bc))
+
+### 📖 Documentation
+
+- **global_allocator:** Remove module doc restating cfg selection ([63946b5](https://github.com/kikiutils/rust/commit/63946b5))
+- Align rustdoc with logger and atomic cell behavior ([4668796](https://github.com/kikiutils/rust/commit/4668796))
+- **logger:** Document wrapper-specific failure conditions ([4442531](https://github.com/kikiutils/rust/commit/4442531))
+- Add README template ([8043c55](https://github.com/kikiutils/rust/commit/8043c55))
+- Fold platform limits into the README summary ([68179ad](https://github.com/kikiutils/rust/commit/68179ad))
+- **global-allocator:** Document per-platform allocator and manual installation ([8dff3eb](https://github.com/kikiutils/rust/commit/8dff3eb))
+- Correct signal handler lifetime and clarify logger file routing ([4c919ef](https://github.com/kikiutils/rust/commit/4c919ef))
+
+### 📦 Build
+
+- **cargo:** Raise rust-version to 1.99 ([afc3fe9](https://github.com/kikiutils/rust/commit/afc3fe9))
+- **cargo:** Anchor package include patterns to the crate root ([d4e5885](https://github.com/kikiutils/rust/commit/d4e5885))
+- **deps:** ⚠️  Upgrade pathkit to v4 ([504430e](https://github.com/kikiutils/rust/commit/504430e))
+
+### 🏡 Chore
+
+- Update vscode configs ([31264ce](https://github.com/kikiutils/rust/commit/31264ce))
+
+### ✅ Tests
+
+- Cover worker batch limit and shutdown timeout ordering ([c26b0d4](https://github.com/kikiutils/rust/commit/c26b0d4))
+- Tighten target sanitizing and timer panic assertions ([b3e189e](https://github.com/kikiutils/rust/commit/b3e189e))
+
+### 🎨 Styles
+
+- Tighten lint suppressions ([4a7b7ed](https://github.com/kikiutils/rust/commit/4a7b7ed))
+
+#### ⚠️ Breaking Changes
+
+- **deps:** ⚠️  Upgrade pathkit to v4 ([504430e](https://github.com/kikiutils/rust/commit/504430e))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.14.0
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.13.2...v0.14.0)
