@@ -144,7 +144,6 @@ default = []
 # Enables every feature.
 full = [
   "atomic-enum-cell",
-  "fx-collections",
   "global-allocator",
   "logger",
   "async-service",
@@ -166,11 +165,6 @@ async-service = [
 ]
 
 atomic-enum-cell = ["dep:anyhow"]
-fx-collections = [
-  "dep:dashmap",
-  "dep:rustc-hash",
-]
-
 global-allocator = [
   "dep:mimalloc",
   "dep:tikv-jemallocator",
@@ -205,7 +199,6 @@ task = [
 
 [dependencies]
 anyhow = { version = ">=1.0.100, <2", optional = true }
-dashmap = { version = ">=6.0.0, <7", optional = true }
 pathkit = { version = ">=3.1.0, <4", optional = true }
 rustc-hash = { version = ">=2.1.0, <3", optional = true }
 time = { version = ">=0.3.50, <0.4", features = ["formatting", "local-offset", "macros"], optional = true }

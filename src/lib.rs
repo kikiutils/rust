@@ -10,4 +10,3 @@ pub mod service;
 #[cfg(feature = "signal")]
 pub mod signal;
 pub mod task;
-pub mod types;
