@@ -2,7 +2,7 @@
 name = "kikiutils"
 version = "0.14.0"
 edition = "2024"
-rust-version = "1.95"
+rust-version = "1.99"
 
 description = "A utility library to simplify Rust development."
 # documentation = "https://docs.rs/crate-name"
@@ -15,13 +15,13 @@ categories = ["development-tools"]
 keywords = ["utils"]
 
 include = [
-  "Cargo.toml",
-  "LICENSE*",
-  "README.md",
-  "benches/**",
-  "examples/**",
-  "src/**",
-  "tests/**",
+  "/Cargo.toml",
+  "/LICENSE*",
+  "/README.md",
+  "/benches/**",
+  "/examples/**",
+  "/src/**",
+  "/tests/**",
 ]
 
 # Prevent accidental publishing for private/internal crates.
