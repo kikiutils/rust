@@ -95,10 +95,6 @@ impl TaskManager {
     /// # Errors
     ///
     /// Fails if the first wait cannot register the signal handlers.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the runtime has no time driver.
     #[cfg(feature = "signal")]
     pub async fn shutdown_on_signal(&self, grace: Duration) -> std::io::Result<ShutdownOutcome> {
         self.cancel_on_shutdown_signal().await?;

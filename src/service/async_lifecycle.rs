@@ -62,10 +62,6 @@ pub trait AsyncServiceLifecycleExt: AsyncServiceLifecycle {
     /// Bounds the whole stop, including waiting for a start or stop in progress and `on_stop`, and fails
     /// with [`StopTimedOut`] when it runs out. If the stop had begun, the service stays
     /// [`ServiceState::Stopping`] and the next stop retries.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the runtime has no time driver.
     fn stop_with_timeout(&self, timeout: Duration) -> impl Future<Output = Result<()>> + Send {
         async move {
             match tokio::time::timeout(timeout, run_stop(self)).await {
