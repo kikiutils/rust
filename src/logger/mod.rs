@@ -253,9 +253,9 @@ impl LoggerGuard {
 /// # Ok(())
 /// # }
 /// ```
-pub fn build_logger<S>(options: LoggerInitOptions) -> Result<(Box<dyn Layer<S> + Send + Sync + 'static>, LoggerGuard)>
+pub fn build_logger<S>(options: LoggerInitOptions) -> Result<(BoxedLayer<S>, LoggerGuard)>
 where
-    S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+    S: Subscriber + for<'a> LookupSpan<'a>,
 {
     // Validate everything before spawning workers so invalid options fail without side effects.
     if options.queue.capacity.get() > LoggerQueueOptions::MAX_CAPACITY {

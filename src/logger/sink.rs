@@ -34,7 +34,9 @@ pub(super) trait LogSink: Send + 'static {
 
     fn write_event(&mut self, event: &[u8]);
 
-    fn write_notice(&mut self, line: &[u8]);
+    fn write_notice(&mut self, line: &[u8]) {
+        self.write_event(line);
+    }
 }
 
 // Structs
@@ -49,10 +51,6 @@ impl LogSink for ConsoleSink {
 
     fn write_event(&mut self, event: &[u8]) {
         let _ = self.writer.write_all(event);
-    }
-
-    fn write_notice(&mut self, line: &[u8]) {
-        let _ = self.writer.write_all(line);
     }
 }
 

@@ -194,12 +194,8 @@ mod tests {
         fn flush(&mut self) {}
 
         fn write_event(&mut self, event: &[u8]) {
-            self.write_notice(event);
-        }
-
-        fn write_notice(&mut self, line: &[u8]) {
             if let Ok(mut lines) = self.0.lock() {
-                lines.push(String::from_utf8_lossy(line).into_owned());
+                lines.push(String::from_utf8_lossy(event).into_owned());
             }
         }
     }
