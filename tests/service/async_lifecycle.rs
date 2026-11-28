@@ -28,6 +28,7 @@ use kikiutils::service::{
         AsyncServiceLifecycleCore,
         AsyncServiceLifecycleExt,
         AsyncServiceTasks,
+        StartError,
         StopTimedOut,
     },
     state::ServiceState,
@@ -158,6 +159,10 @@ impl AsyncServiceLifecycle for DefaultStopService {
 }
 
 // Functions
+fn assert_start_error(error: &anyhow::Error, expected: StartError) {
+    assert_eq!(error.downcast_ref::<StartError>(), Some(&expected));
+}
+
 fn assert_stop_timed_out(error: &anyhow::Error) {
     assert_eq!(error.downcast_ref::<StopTimedOut>().unwrap().timeout, SHORT);
     assert_eq!(
@@ -187,6 +192,30 @@ async fn start_runs_on_start_once_and_marks_the_service_running() {
 }
 
 #[tokio::test]
+async fn concurrent_starts_wait_for_each_other_and_run_on_start_once() {
+    let service = Arc::new(TestService::default());
+    set(&service.start_waits_for_gate, true);
+
+    let (first, second, ()) = timeout(COMPLETION_TIMEOUT, async {
+        tokio::join!(service.start(), service.start(), async {
+            while service.state() != ServiceState::Starting {
+                tokio::task::yield_now().await;
+            }
+
+            tokio::task::yield_now().await;
+            service.start_gate.cancel();
+        })
+    })
+    .await
+    .unwrap();
+
+    first.unwrap();
+    second.unwrap();
+    assert_eq!(service.on_start_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(service.state(), ServiceState::Running);
+}
+
+#[tokio::test]
 async fn failed_start_rolls_back_after_tasks_exit_and_keeps_the_start_error() {
     let service = Arc::new(TestService::default());
     set(&service.spawn_cooperative_task, true);
@@ -196,6 +225,7 @@ async fn failed_start_rolls_back_after_tasks_exit_and_keeps_the_start_error() {
     let error = service.start().await.unwrap_err();
 
     assert_eq!(error.to_string(), "startup failed");
+    assert!(!error.is::<StartError>());
     assert_eq!(service.state(), ServiceState::Stopped);
     assert_eq!(service.on_stop_calls(), 1);
     assert!(flag(&service.on_stop_saw_task_exited));
@@ -217,25 +247,29 @@ async fn stop_runs_on_stop_after_tasks_exit_and_is_a_noop_once_stopped() {
 
 #[tokio::test]
 async fn cancelling_the_parent_interrupts_a_start_in_progress() {
-    let parent = CancellationToken::new();
-    let service = Arc::new(TestService {
-        lifecycle: AsyncServiceLifecycleCore::with_parent(&parent),
-        ..TestService::default()
-    });
+    // The rejection wins whether `on_start` then returns `Ok` or its own error.
+    for start_fails_after_cancel in [false, true] {
+        let parent = CancellationToken::new();
+        let service = Arc::new(TestService {
+            lifecycle: AsyncServiceLifecycleCore::with_parent(&parent),
+            ..TestService::default()
+        });
 
-    set(&service.start_blocks_until_cancelled, true);
-    let starting_service = Arc::clone(&service);
-    let start = tokio::task::spawn(async move { starting_service.start().await });
-    while service.state() != ServiceState::Starting {
-        tokio::task::yield_now().await;
+        set(&service.start_blocks_until_cancelled, true);
+        set(&service.start_should_fail, start_fails_after_cancel);
+        let starting_service = Arc::clone(&service);
+        let start = tokio::task::spawn(async move { starting_service.start().await });
+        while service.state() != ServiceState::Starting {
+            tokio::task::yield_now().await;
+        }
+
+        parent.cancel();
+        let error = timeout(COMPLETION_TIMEOUT, start).await.unwrap().unwrap().unwrap_err();
+
+        assert_start_error(&error, StartError::ParentCancelled);
+        assert_eq!(service.state(), ServiceState::Stopped);
+        assert_eq!(service.on_stop_calls(), 1);
     }
-
-    parent.cancel();
-    let error = timeout(COMPLETION_TIMEOUT, start).await.unwrap().unwrap().unwrap_err();
-
-    assert_eq!(error.to_string(), "service start was cancelled");
-    assert_eq!(service.state(), ServiceState::Stopped);
-    assert_eq!(service.on_stop_calls(), 1);
 }
 
 #[tokio::test]
@@ -248,18 +282,11 @@ async fn cancelled_parent_rejects_starts_while_running_and_after_stopping() {
     service.start().await.unwrap();
     parent.cancel();
 
-    let error = service.start().await.unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "service run was cancelled by its parent; stop it first"
-    );
+    assert_start_error(&service.start().await.unwrap_err(), StartError::ParentCancelled);
+    assert_eq!(service.lifecycle.state(), ServiceState::Running);
 
     service.stop().await.unwrap();
-    let error = service.start().await.unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "cannot start service after its parent token was cancelled"
-    );
+    assert_start_error(&service.start().await.unwrap_err(), StartError::ParentCancelled);
 
     assert_eq!(service.lifecycle.state(), ServiceState::Stopped);
 }
@@ -272,10 +299,7 @@ async fn dropped_start_requires_a_stop_and_the_restart_gets_live_tokens() {
     assert!(timeout(SHORT, service.start()).await.is_err());
     assert_eq!(service.state(), ServiceState::Stopping);
     assert!(service.last_token().is_cancelled());
-    assert_eq!(
-        service.start().await.unwrap_err().to_string(),
-        "cannot start service before its previous run is stopped; stop it first"
-    );
+    assert_start_error(&service.start().await.unwrap_err(), StartError::PreviousRunNotStopped);
 
     service.stop().await.unwrap();
     assert_eq!(service.on_stop_calls(), 1);

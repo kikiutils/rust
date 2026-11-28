@@ -11,10 +11,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{
-    Result,
-    bail,
-};
+use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 
 use super::state::ServiceState;
@@ -51,8 +48,9 @@ pub trait AsyncServiceLifecycle: Send + Sync {
 /// Implemented for every [`AsyncServiceLifecycle`], so the lifecycle state machine cannot be
 /// overridden.
 pub trait AsyncServiceLifecycleExt: AsyncServiceLifecycle {
-    /// Does nothing if the service is already running, but fails if its run was cancelled by the
-    /// parent; stop it first.
+    /// Does nothing if the service is already running. Rejections and a run cancelled by the parent
+    /// fail with [`StartError`] inside the [`anyhow::Error`], even if `on_start` also failed; otherwise
+    /// the error is the one returned by `on_start`.
     fn start(self: &Arc<Self>) -> impl Future<Output = Result<()>> + Send {
         run_start(self)
     }
@@ -189,6 +187,8 @@ impl AsyncServiceTasks {
         self.manager.is_cancelled()
     }
 
+    /// The task gets no cancel signal, but a stop still waits for it; use
+    /// [`spawn_with_token`](Self::spawn_with_token) unless it ends on its own.
     pub fn spawn<F>(&self, future: F) -> Result<tokio::task::JoinHandle<F::Output>, TasksClosed>
     where
         F: Future + Send + 'static,
@@ -251,6 +251,30 @@ impl DroppedStartGuard<'_> {
     }
 }
 
+/// Returned by [`AsyncServiceLifecycleExt::start`] inside the [`anyhow::Error`], so callers can tell
+/// why the start was refused apart from a failing `on_start`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum StartError {
+    /// The parent token passed to [`AsyncServiceLifecycleCore::with_parent`] was cancelled before or
+    /// during the start, so this service can never start again. If it was already running, its run
+    /// stays [`ServiceState::Running`] with cancelled tokens until it is stopped.
+    ParentCancelled,
+    /// The service is [`ServiceState::Stopping`]; stop it to finish the previous run.
+    PreviousRunNotStopped,
+}
+
+impl fmt::Display for StartError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::ParentCancelled => "cannot start service after its parent token was cancelled",
+            Self::PreviousRunNotStopped => "cannot start service before its previous run is stopped; stop it first",
+        })
+    }
+}
+
+impl Error for StartError {}
+
 /// Returned by [`AsyncServiceLifecycleExt::stop_with_timeout`] inside the [`anyhow::Error`], so
 /// callers can tell a timeout apart from a failing `on_stop`.
 #[derive(Debug, Clone, Copy)]
@@ -306,24 +330,15 @@ async fn run_start<T: AsyncServiceLifecycle + ?Sized>(service: &Arc<T>) -> Resul
     let tasks = {
         let mut phase = core.phase();
         match &*phase {
-            Phase::Running(tasks) => {
-                if tasks.is_cancelled() {
-                    bail!("service run was cancelled by its parent; stop it first");
-                }
-
-                return Ok(());
-            },
-            Phase::Starting(_) | Phase::Stopping(_) => {
-                bail!("cannot start service before its previous run is stopped; stop it first");
-            },
+            // Only the parent cancels a run without moving it to stopping.
+            Phase::Running(tasks) if tasks.is_cancelled() => return Err(StartError::ParentCancelled.into()),
+            Phase::Running(_) => return Ok(()),
+            Phase::Starting(_) | Phase::Stopping(_) => return Err(StartError::PreviousRunNotStopped.into()),
+            Phase::Stopped if core.parent.is_cancelled() => return Err(StartError::ParentCancelled.into()),
             Phase::Stopped => {},
         }
 
         let tasks = AsyncServiceTasks::new(&core.parent);
-        if tasks.is_cancelled() {
-            bail!("cannot start service after its parent token was cancelled");
-        }
-
         *phase = Phase::Starting(tasks.clone());
         tasks
     };
@@ -336,7 +351,9 @@ async fn run_start<T: AsyncServiceLifecycle + ?Sized>(service: &Arc<T>) -> Resul
 
     let result = service.on_start(&tasks).await;
     guard.disarm();
-    if result.is_ok() && !tasks.is_cancelled() {
+    // Only the parent cancels a run during `on_start`. Read before the rollback, which cancels it too.
+    let parent_cancelled = tasks.is_cancelled();
+    if result.is_ok() && !parent_cancelled {
         core.set_phase(Phase::Running(tasks));
         return Ok(());
     }
@@ -344,10 +361,11 @@ async fn run_start<T: AsyncServiceLifecycle + ?Sized>(service: &Arc<T>) -> Resul
     core.set_stopping();
     // Preserve the startup error; a failing `on_stop` during the rollback is not reported here.
     let _ = finish_stop(service.as_ref()).await;
-    match result {
-        Ok(()) => bail!("service start was cancelled"),
-        Err(start_error) => Err(start_error),
+    if parent_cancelled {
+        return Err(StartError::ParentCancelled.into());
     }
+
+    result
 }
 
 async fn run_stop<T: AsyncServiceLifecycle + ?Sized>(service: &T) -> Result<()> {
