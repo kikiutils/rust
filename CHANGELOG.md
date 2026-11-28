@@ -1,5 +1,102 @@
 # Changelog
 
+## v0.14.0
+
+[compare changes](https://github.com/kikiutils/rust/compare/v0.13.2...v0.14.0)
+
+### 🚀 Enhancements
+
+- **atomic:** ⚠️  Return typed transition errors and add try_update to AtomicEnumCell ([4ef7437](https://github.com/kikiutils/rust/commit/4ef7437))
+- **logger:** ⚠️  Auto-detect console ANSI support ([9692689](https://github.com/kikiutils/rust/commit/9692689))
+- **logger:** Add from_env_with_default_filter ([f44e9c6](https://github.com/kikiutils/rust/commit/f44e9c6))
+- **logger:** ⚠️  Harden worker routing and filtering, reshape queue options ([50bbfa5](https://github.com/kikiutils/rust/commit/50bbfa5))
+- **task:** Make TaskManager cloneable and add signal-driven cancellation ([e8d8aca](https://github.com/kikiutils/rust/commit/e8d8aca))
+- **signal:** ⚠️  Report which shutdown signal was received ([cd8b40a](https://github.com/kikiutils/rust/commit/cd8b40a))
+- **task:** Add spawn_critical ([fbabc86](https://github.com/kikiutils/rust/commit/fbabc86))
+- **logger:** ⚠️  Add build_logger and timestamp options ([52b5d83](https://github.com/kikiutils/rust/commit/52b5d83))
+- **service:** Return a typed StartError when start is refused ([733f52f](https://github.com/kikiutils/rust/commit/733f52f))
+- **logger:** Cap queue capacity and split sinks into their own module ([67c0acf](https://github.com/kikiutils/rust/commit/67c0acf))
+- **task:** Add TaskManager::shutdown_on_signal ([f032f3a](https://github.com/kikiutils/rust/commit/f032f3a))
+
+### 🩹 Fixes
+
+- **scripts:** Preserve cross-target imports during fixes ([c1964ed](https://github.com/kikiutils/rust/commit/c1964ed))
+- **scripts:** Install Windows MSVC target before fix-windows runs ([d9e4c5d](https://github.com/kikiutils/rust/commit/d9e4c5d))
+- **scripts:** Respect the min publish age when upgrading dependencies ([df0d370](https://github.com/kikiutils/rust/commit/df0d370))
+- **logger:** Recompute the local offset each second so timestamps follow DST ([2ceddc6](https://github.com/kikiutils/rust/commit/2ceddc6))
+- **logger:** Fail init before installing a subscriber and isolate console span fields ([72f4552](https://github.com/kikiutils/rust/commit/72f4552))
+
+### 💅 Refactors
+
+- Standardize module-qualified imports ([41bd7cb](https://github.com/kikiutils/rust/commit/41bd7cb))
+- **logger:** Trim redundant docs and simplify timestamp formatting ([ad77dd9](https://github.com/kikiutils/rust/commit/ad77dd9))
+- **logger:** ⚠️  Accept only canonical queue full policy names ([2e2c064](https://github.com/kikiutils/rust/commit/2e2c064))
+- **logger:** ⚠️  Unify logger env var names ([180aa80](https://github.com/kikiutils/rust/commit/180aa80))
+- **atomic:** ⚠️  Compare raw discriminants in ensure and make TransitionError non-exhaustive ([1a743d4](https://github.com/kikiutils/rust/commit/1a743d4))
+- **task:** ⚠️  Rebuild TaskManager on TaskTracker with a reopenable root token ([b6f7191](https://github.com/kikiutils/rust/commit/b6f7191))
+- **service:** ⚠️  Rebuild the async lifecycle on per-run tasks ([d1bd1d5](https://github.com/kikiutils/rust/commit/d1bd1d5))
+- ⚠️  Remove the fx-collections module and feature ([d39178a](https://github.com/kikiutils/rust/commit/d39178a))
+- **logger:** Simplify file sink and env parsing ([b8f1c6a](https://github.com/kikiutils/rust/commit/b8f1c6a))
+- ⚠️  Remove the async-service module and feature ([a4fcb0a](https://github.com/kikiutils/rust/commit/a4fcb0a))
+- **logger:** Reuse BoxedLayer and default write_notice to write_event ([6eeca0a](https://github.com/kikiutils/rust/commit/6eeca0a))
+
+### 📖 Documentation
+
+- Add logger file rotation todo ([22bb01d](https://github.com/kikiutils/rust/commit/22bb01d))
+- Show feature requirements on docs.rs ([5bcea41](https://github.com/kikiutils/rust/commit/5bcea41))
+- **atomic:** Document the AtomicEnumCell::try_update contract ([f0de698](https://github.com/kikiutils/rust/commit/f0de698))
+- Drop Panics sections that only mention a missing time driver ([09b7fb4](https://github.com/kikiutils/rust/commit/09b7fb4))
+- **todo:** Describe file rotation byte counting without the removed SinkFile ([5879105](https://github.com/kikiutils/rust/commit/5879105))
+- **task:** Fold the shutdown_on_signal error condition into its summary ([c3e9e78](https://github.com/kikiutils/rust/commit/c3e9e78))
+
+### 📦 Build
+
+- **windows:** Install LLVM 23 from apt.llvm.org for xwin builds ([a7b0502](https://github.com/kikiutils/rust/commit/a7b0502))
+- Cap dependency major versions and trim shared tokio features ([ac8a036](https://github.com/kikiutils/rust/commit/ac8a036))
+- Enable tokio features per module and align dependency bounds ([cfbbb82](https://github.com/kikiutils/rust/commit/cfbbb82))
+- Fix minimum versions of tracing and dev tokio ([aa75838](https://github.com/kikiutils/rust/commit/aa75838))
+- **cargo:** Exclude dependency sources from coverage reports ([cc0ecfe](https://github.com/kikiutils/rust/commit/cc0ecfe))
+- **cargo:** Keep only the full feature alias ([7343b2a](https://github.com/kikiutils/rust/commit/7343b2a))
+
+### 🏡 Chore
+
+- Allow unwrap and expect in tests via clippy config ([6102338](https://github.com/kikiutils/rust/commit/6102338))
+- Update toolchain version ([f8cc420](https://github.com/kikiutils/rust/commit/f8cc420))
+- Downgrade toolchain version ([9668a07](https://github.com/kikiutils/rust/commit/9668a07))
+- Update public scripts and add RULES file ([a28bebf](https://github.com/kikiutils/rust/commit/a28bebf))
+- Update ignore files ([6f3faa4](https://github.com/kikiutils/rust/commit/6f3faa4))
+- **cargo:** Configure one-day publish age ([447f71d](https://github.com/kikiutils/rust/commit/447f71d))
+- **rust:** Move to nightly-2026-11-14 and update Mordant ([6c9339a](https://github.com/kikiutils/rust/commit/6c9339a))
+- Lint code ([fad1bc9](https://github.com/kikiutils/rust/commit/fad1bc9))
+
+### ✅ Tests
+
+- **service:** Merge the failing on_stop tests ([2242446](https://github.com/kikiutils/rust/commit/2242446))
+
+### 🤖 CI
+
+- Rewrite test and coverage workflow ([fb811a3](https://github.com/kikiutils/rust/commit/fb811a3))
+- Add MSRV check job and macOS to the test matrix ([17610f9](https://github.com/kikiutils/rust/commit/17610f9))
+
+#### ⚠️ Breaking Changes
+
+- **atomic:** ⚠️  Return typed transition errors and add try_update to AtomicEnumCell ([4ef7437](https://github.com/kikiutils/rust/commit/4ef7437))
+- **logger:** ⚠️  Auto-detect console ANSI support ([9692689](https://github.com/kikiutils/rust/commit/9692689))
+- **logger:** ⚠️  Harden worker routing and filtering, reshape queue options ([50bbfa5](https://github.com/kikiutils/rust/commit/50bbfa5))
+- **signal:** ⚠️  Report which shutdown signal was received ([cd8b40a](https://github.com/kikiutils/rust/commit/cd8b40a))
+- **logger:** ⚠️  Add build_logger and timestamp options ([52b5d83](https://github.com/kikiutils/rust/commit/52b5d83))
+- **logger:** ⚠️  Accept only canonical queue full policy names ([2e2c064](https://github.com/kikiutils/rust/commit/2e2c064))
+- **logger:** ⚠️  Unify logger env var names ([180aa80](https://github.com/kikiutils/rust/commit/180aa80))
+- **atomic:** ⚠️  Compare raw discriminants in ensure and make TransitionError non-exhaustive ([1a743d4](https://github.com/kikiutils/rust/commit/1a743d4))
+- **task:** ⚠️  Rebuild TaskManager on TaskTracker with a reopenable root token ([b6f7191](https://github.com/kikiutils/rust/commit/b6f7191))
+- **service:** ⚠️  Rebuild the async lifecycle on per-run tasks ([d1bd1d5](https://github.com/kikiutils/rust/commit/d1bd1d5))
+- ⚠️  Remove the fx-collections module and feature ([d39178a](https://github.com/kikiutils/rust/commit/d39178a))
+- ⚠️  Remove the async-service module and feature ([a4fcb0a](https://github.com/kikiutils/rust/commit/a4fcb0a))
+
+### ❤️ Contributors
+
+- Kiki-kanri
+
 ## v0.13.2
 
 [compare changes](https://github.com/kikiutils/rust/compare/v0.13.1...v0.13.2)
