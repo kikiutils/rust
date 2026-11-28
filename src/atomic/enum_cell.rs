@@ -112,7 +112,7 @@ impl<T: Copy + Into<u8> + TryFrom<u8>> AtomicEnumCell<T> {
 
     // Private methods
     fn decode(raw: u8) -> T {
-        #[allow(
+        #[expect(
             clippy::expect_used,
             reason = "AtomicEnumCell only writes values converted from T, so an invalid discriminant indicates a broken internal invariant."
         )]

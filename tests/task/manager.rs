@@ -1,5 +1,3 @@
-#![allow(clippy::unwrap_used)]
-
 use std::{
     future::pending,
     sync::Arc,

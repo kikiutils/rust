@@ -1,6 +1,5 @@
 //! A separate test binary, because a signal reaches every listener in the process.
 #![cfg(all(unix, feature = "signal", feature = "task"))]
-#![allow(clippy::unwrap_used)]
 use std::{
     future::poll_fn,
     pin::pin,
