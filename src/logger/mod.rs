@@ -325,14 +325,8 @@ where
 }
 
 /// Builds the logger with [`build_logger`] and installs it as the global subscriber, together with the
-/// `log` bridge. Fails without creating directories or workers when a global subscriber is already set.
-///
-/// File output is split by event target: `a::b::c` is written to `{base_dir}/a/b/c.log`, an empty target
-/// to `_default.log`, and targets whose file cannot be opened to `_fallback.log`.
-///
-/// Each output reports the events it dropped because its queue was full with a `WARN kikiutils::logger`
-/// line written after its next batch: the console output writes it to its stream, the file output to
-/// `{base_dir}/kikiutils/logger.log`.
+/// `log` bridge. Fails without creating directories or workers when a default subscriber is already set,
+/// either globally or scoped on the calling thread.
 ///
 /// # Example
 ///
@@ -350,8 +344,7 @@ where
 /// # }
 /// ```
 pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
-    // `tracing::dispatcher::has_been_set` also turns true after any scoped default, so ask for the default
-    // dispatcher instead; inside a scoped default this sees the scoped subscriber.
+    // `tracing::dispatcher::has_been_set` also turns true after any scoped default has ended.
     if dispatcher::get_default(|dispatch| !dispatch.is::<NoSubscriber>()) {
         bail!("failed to initialize tracing subscriber: a default subscriber is already set");
     }

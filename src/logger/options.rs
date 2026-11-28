@@ -56,8 +56,9 @@ pub enum LoggerQueueFullPolicy {
     /// The thread emitting the event waits for queue space, which also stalls an async runtime worker
     /// thread that logs.
     Block,
-    /// Dropped events are counted in [`LoggerGuard::dropped_count`](super::LoggerGuard::dropped_count);
-    /// while the worker runs, it also reports them with a `WARN kikiutils::logger` line.
+    /// Dropped events are counted in [`LoggerGuard::dropped_count`](super::LoggerGuard::dropped_count).
+    /// While the worker runs, it also reports them after its next batch with a `WARN kikiutils::logger`
+    /// line, written to the console stream or to `{base_dir}/kikiutils/logger.log`.
     #[default]
     DropNewest,
 }
@@ -120,6 +121,8 @@ impl LoggerConsoleOutputOptions {
     }
 }
 
+/// Splits output by event target: `a::b::c` is written to `{base_dir}/a/b/c.log`, an empty target to
+/// `_default.log`, and targets whose file cannot be opened to `_fallback.log`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct LoggerFileOutputOptions {
@@ -242,12 +245,12 @@ impl LoggerInitOptions {
     /// Reads these keys:
     /// - `RUST_LOG`: default filter directives for all outputs
     /// - `LOGGER_CONSOLE_ANSI`: `auto`, `always`, `never`, or a boolean
-    /// - `LOGGER_CONSOLE_ENABLED`
+    /// - `LOGGER_CONSOLE_ENABLED`: a boolean
     /// - `LOGGER_CONSOLE_FILTER`: console filter directives, overrides `RUST_LOG`
     /// - `LOGGER_CONSOLE_STREAM`: `stdout` or `stderr`
-    /// - `LOGGER_CONSOLE_TARGET`
+    /// - `LOGGER_CONSOLE_TARGET`: a boolean
     /// - `LOGGER_FILE_DIR`: required for file output
-    /// - `LOGGER_FILE_ENABLED`: defaults to true when `LOGGER_FILE_DIR` is set
+    /// - `LOGGER_FILE_ENABLED`: a boolean, defaults to true when `LOGGER_FILE_DIR` is set
     /// - `LOGGER_FILE_FILTER`: file filter directives, overrides `RUST_LOG`
     /// - `LOGGER_QUEUE_CAPACITY`: a positive integer up to [`LoggerQueueOptions::MAX_CAPACITY`]
     /// - `LOGGER_QUEUE_FULL_POLICY`: `block` or `drop_newest`

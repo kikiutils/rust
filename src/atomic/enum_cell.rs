@@ -15,7 +15,9 @@ use anyhow::{
 
 // Structs
 
-/// `Into<u8>` and `TryFrom<u8>` must round-trip every value; otherwise [`AtomicEnumCell::get`] panics.
+/// `Into<u8>` and `TryFrom<u8>` must round-trip every value; otherwise every method that returns the
+/// stored value as `T`, including the error paths of [`ensure`](Self::ensure) and
+/// [`try_transition`](Self::try_transition), panics.
 pub struct AtomicEnumCell<T> {
     _marker: PhantomData<T>,
     inner: AtomicU8,
