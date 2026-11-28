@@ -20,12 +20,13 @@ use rustc_hash::FxHashMap;
 use super::options::LoggerConsoleStream;
 
 // Constants/Statics
+/// One buffer serves every console event, so it is sized for full batches: compared with std's 8 KiB default
+/// it cuts write syscalls about eightfold and is faster for long lines.
 const CONSOLE_BUFFER_CAPACITY: usize = 64 * 1024;
 const DEFAULT_LOG_KEY: &str = "_default";
 pub(super) const DROPPED_NOTICE_TARGET: &str = "kikiutils::logger";
 const FALLBACK_FILE_INDEX: usize = 0;
 const FALLBACK_LOG_KEY: &str = "_fallback";
-const FILE_BUFFER_CAPACITY: usize = 8 * 1024;
 pub(super) const TARGET_SEPARATOR: u8 = 0;
 
 // Traits
@@ -151,7 +152,7 @@ impl FileSink {
 fn open_file(path: &Path) -> Result<BufWriter<File>> {
     path.create_parent_dir_all_sync()?;
     let file = OpenOptions::new().create(true).append(true).open(path)?;
-    Ok(BufWriter::with_capacity(FILE_BUFFER_CAPACITY, file))
+    Ok(BufWriter::new(file))
 }
 
 fn sanitize_target_segment(value: &str) -> String {
