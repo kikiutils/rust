@@ -24,7 +24,11 @@ use tracing::{
         NoSubscriber,
     },
 };
-use tracing_log::NormalizeEvent;
+use tracing_log::{
+    AsLog,
+    LogTracer,
+    NormalizeEvent,
+};
 use tracing_subscriber::{
     EnvFilter,
     Layer,
@@ -46,7 +50,6 @@ use tracing_subscriber::{
     },
     registry,
     registry::LookupSpan,
-    util::SubscriberInitExt,
 };
 
 pub mod options;
@@ -78,8 +81,19 @@ type BoxedLayer<S> = Box<dyn Layer<S> + Send + Sync + 'static>;
 
 // Structs
 
-/// [`DefaultFields`] under a distinct type, so the file layer caches its own ANSI-free span fields
-/// instead of reusing the ones formatted by the console layer.
+/// [`DefaultFields`] under a distinct type per output. Formatted span fields are cached by formatter type,
+/// so a shared type would let one layer reuse fields formatted with another layer's ANSI setting,
+/// including a `fmt` layer composed with [`build_logger`].
+#[derive(Debug, Default)]
+struct ConsoleFields(DefaultFields);
+
+impl<'writer> FormatFields<'writer> for ConsoleFields {
+    fn format_fields<R: RecordFields>(&self, writer: Writer<'writer>, fields: R) -> fmt::Result {
+        self.0.format_fields(writer, fields)
+    }
+}
+
+/// See [`ConsoleFields`].
 #[derive(Debug, Default)]
 struct FileFields(DefaultFields);
 
@@ -209,9 +223,10 @@ impl LoggerGuard {
 /// Builds the logger layer and spawns its workers without installing a subscriber.
 ///
 /// The layer works in any subscriber built on [`Registry`], since its outputs use per-layer filters.
-/// Installing the subscriber is up to the caller: [`SubscriberInitExt::try_init`] also installs the `log` bridge, so
-/// events from the `log` crate keep reaching the logger, while `tracing::subscriber::set_global_default`
-/// does not.
+/// Installing the subscriber is up to the caller:
+/// [`SubscriberInitExt::try_init`](tracing_subscriber::util::SubscriberInitExt::try_init) also installs the
+/// `log` bridge, so events from the `log` crate keep reaching the logger, while
+/// `tracing::subscriber::set_global_default` does not.
 ///
 /// # Example
 ///
@@ -276,6 +291,7 @@ where
         logger_guard.workers.push(worker);
         layers.push(
             tracing_subscriber::fmt::layer()
+                .fmt_fields(ConsoleFields::default())
                 .with_timer(timer)
                 .with_writer(writer)
                 .with_ansi(resolve_ansi(console_options.ansi, console_options.stream))
@@ -341,10 +357,14 @@ pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
     }
 
     let (layer, logger_guard) = build_logger::<Registry>(options)?;
-    registry()
-        .with(layer)
-        .try_init()
-        .context("failed to initialize tracing subscriber")?;
+    let subscriber = registry().with(layer);
+    // Install the `log` bridge first: `try_init` would set the global subscriber before failing on an
+    // existing `log` logger, leaving a subscriber whose workers stop with the dropped guard.
+    LogTracer::builder()
+        .with_max_level(subscriber.max_level_hint().unwrap_or(LevelFilter::TRACE).as_log())
+        .init()
+        .context("failed to initialize log bridge: a log logger is already set")?;
+    tracing::subscriber::set_global_default(subscriber).context("failed to initialize tracing subscriber")?;
 
     Ok(logger_guard)
 }
