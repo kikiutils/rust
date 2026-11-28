@@ -163,6 +163,13 @@ fn shutdown_with_timeout_panics_before_cancelling_without_time_driver() {
         async move { manager.shutdown_with_timeout(COMPLETION_TIMEOUT).await }
     });
 
-    assert!(runtime.block_on(shutdown).unwrap_err().is_panic());
+    let panic = runtime.block_on(shutdown).unwrap_err().into_panic();
+    let message = panic
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+        .unwrap();
+
+    assert!(message.contains("timers are disabled"), "{message}");
     assert!(!token.is_cancelled());
 }

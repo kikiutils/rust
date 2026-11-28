@@ -228,6 +228,8 @@ mod tests {
     fn target_to_key_sanitizes_and_preserves_module_hierarchy() {
         assert_eq!(target_to_key("app::endpoint::status"), "app/endpoint/status");
         assert_eq!(target_to_key("../bad::target?"), "_bad/target_");
+        // Windows separators and drive prefixes must not escape the segment either.
+        assert_eq!(target_to_key("..\\x::C:"), "_x/C_");
         assert_eq!(target_to_key("...::"), "_default");
     }
 }
