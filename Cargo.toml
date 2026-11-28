@@ -146,7 +146,6 @@ full = [
   "atomic-enum-cell",
   "global-allocator",
   "logger",
-  "async-service",
   "signal",
   "task",
 ]
@@ -157,13 +156,6 @@ full = [
 # async = ["dep:tokio"]
 
 # Define features here.
-async-service = [
-  "dep:anyhow",
-  "dep:tokio",
-  "task",
-  "tokio/sync",
-]
-
 atomic-enum-cell = ["dep:anyhow"]
 global-allocator = [
   "dep:mimalloc",
