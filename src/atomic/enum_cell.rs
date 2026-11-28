@@ -96,6 +96,9 @@ impl<T: Copy + Into<u8> + TryFrom<u8>> AtomicEnumCell<T> {
             })
     }
 
+    /// Atomically replaces the value with `f(current)` unless `f` returns `None`, returning
+    /// `Ok(previous)` or `Err(current)`. `f` may run several times under contention, so it must be
+    /// free of side effects.
     pub fn try_update<F: FnMut(T) -> Option<T>>(&self, mut f: F) -> Result<T, T> {
         self.inner
             .try_update(Ordering::SeqCst, Ordering::SeqCst, |raw| {
