@@ -43,7 +43,7 @@ async fn shutdown_signal_waits_end_on_cancel_or_sigterm() {
     // The first poll registers the handlers, so the signal below cannot terminate the process.
     assert!(poll_fn(|cx| Poll::Ready(wait.as_mut().poll(cx).is_pending())).await);
     manager.cancel();
-    assert_eq!(timeout(Duration::from_secs(5), wait).await.unwrap().unwrap(), None);
+    assert_eq!(timeout(COMPLETION_TIMEOUT, wait).await.unwrap().unwrap(), None);
 
     manager.reopen();
     let mut wait = pin!(manager.cancel_on_shutdown_signal());

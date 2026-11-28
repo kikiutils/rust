@@ -85,16 +85,12 @@ impl TaskManager {
     /// Waits like [`cancel_on_shutdown_signal`](Self::cancel_on_shutdown_signal), then cancels the
     /// manager and waits up to `grace` for its tasks. A second shutdown signal during the grace period
     /// returns [`ShutdownOutcome::Forced`] at once; that signal does not terminate the process by
-    /// itself, so the caller should exit. Failing to listen for the second signal is ignored. Remaining
-    /// tasks keep running and stay tracked.
+    /// itself, so the caller should exit. Only failing to register the first wait is an error; failing to
+    /// listen for the second signal is ignored. Remaining tasks keep running and stay tracked.
     ///
     /// On Windows, the system still ends the process a few seconds after
     /// [`CtrlClose`](crate::signal::ShutdownSignal::CtrlClose) or
     /// [`CtrlShutdown`](crate::signal::ShutdownSignal::CtrlShutdown), whatever `grace` is.
-    ///
-    /// # Errors
-    ///
-    /// Fails if the first wait cannot register the signal handlers.
     #[cfg(feature = "signal")]
     pub async fn shutdown_on_signal(&self, grace: Duration) -> std::io::Result<ShutdownOutcome> {
         self.cancel_on_shutdown_signal().await?;
