@@ -191,7 +191,7 @@ task = [
 
 [dependencies]
 anyhow = { version = ">=1.0.100, <2", optional = true }
-pathkit = { version = ">=3.1.0, <4", optional = true }
+pathkit = { version = ">=4.0.0, <5", optional = true }
 rustc-hash = { version = ">=2.1.0, <3", optional = true }
 time = { version = ">=0.3.50, <0.4", features = ["formatting", "local-offset", "macros"], optional = true }
 tokio = { version = ">=1.53.0, <2", features = ["rt"], optional = true }

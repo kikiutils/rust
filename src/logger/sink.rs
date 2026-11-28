@@ -13,7 +13,7 @@ use std::{
 use anyhow::Result;
 use pathkit::{
     Path,
-    SyncFsOps,
+    sync_fs_ops::SyncFsOps,
 };
 use rustc_hash::FxHashMap;
 

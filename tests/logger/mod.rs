@@ -31,8 +31,8 @@ use kikiutils::logger::{
 };
 use pathkit::{
     Path,
-    SyncFsOps,
     path,
+    sync_fs_ops::SyncFsOps,
 };
 use tracing::{
     Level,
@@ -58,7 +58,7 @@ fn init_logger_writes_filtered_events_to_target_files() -> Result<()> {
         "an invalid console filter must fail init"
     );
 
-    assert!(!log_dir.exists_sync()?);
+    assert!(!log_dir.try_exists_sync()?);
 
     // The console enables only the span, probe and shared targets, so it formats span fields with ANSI
     // and prints just the shared event. The probe target is enabled on the console but not in the file,
@@ -123,14 +123,14 @@ fn init_logger_writes_filtered_events_to_target_files() -> Result<()> {
         "{shared:?}"
     );
 
-    assert!(!(&log_dir / "logger_integration" / "muted.log").exists_sync()?);
+    assert!(!(&log_dir / "logger_integration" / "muted.log").try_exists_sync()?);
 
     let second_dir = unique_temp_dir();
     let second =
         init_logger(LoggerInitOptions::default().with_file_output(LoggerFileOutputOptions::new(second_dir.clone())));
 
     assert!(second.is_err(), "a second init must fail");
-    assert!(!second_dir.exists_sync()?);
+    assert!(!second_dir.try_exists_sync()?);
 
     event!(target: "logger_integration::shutdown", Level::INFO, "before shutdown");
     assert_eq!(logger_guard.dropped_count(), 0);
@@ -158,7 +158,7 @@ fn build_logger_rejects_oversized_queue_without_side_effects() -> Result<()> {
     );
 
     assert!(result.is_err());
-    assert!(!log_dir.exists_sync()?);
+    assert!(!log_dir.try_exists_sync()?);
 
     Ok(())
 }
