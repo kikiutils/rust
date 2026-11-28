@@ -141,7 +141,7 @@ pub(super) fn spawn_worker(
 }
 
 /// Drains queued commands before flushing, so bursts are written in batches while an idle queue still
-/// flushes each line immediately. Sinks flush their buffers on drop when all senders disconnect.
+/// flushes each line immediately.
 fn run_worker(
     receiver: &std::sync::mpsc::Receiver<LoggerCommand>,
     mut sink: impl LogSink,

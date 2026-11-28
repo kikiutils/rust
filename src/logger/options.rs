@@ -121,8 +121,9 @@ impl LoggerConsoleOutputOptions {
     }
 }
 
-/// Splits output by event target: `a::b::c` is written to `{base_dir}/a/b/c.log`, an empty target to
-/// `_default.log`, and targets whose file cannot be opened to `_fallback.log`.
+/// Splits output by event target: `a::b::c` is written to `{base_dir}/a/b/c.log`, with characters other than
+/// ASCII alphanumerics, `-`, `_` and `.` replaced by `_`. An empty target goes to `_default.log`, and a target
+/// whose file cannot be opened goes to `_fallback.log` for the rest of the process.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct LoggerFileOutputOptions {

@@ -41,8 +41,9 @@ impl fmt::Display for ShutdownSignal {
 
 /// Registers the handlers when first polled, and fails if one cannot be registered.
 ///
-/// On Unix, Tokio keeps the handlers registered until the process exits, so once this returns these
-/// signals no longer terminate the process and are ignored unless something else listens.
+/// On Unix, Tokio keeps the handlers registered until the process exits, so from the first poll on, even if
+/// this future is dropped before a signal arrives, these signals no longer terminate the process and are
+/// ignored unless something else listens.
 pub async fn wait_for_shutdown_signal() -> io::Result<ShutdownSignal> {
     #[cfg(unix)]
     {

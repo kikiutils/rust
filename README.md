@@ -6,7 +6,7 @@
 [![codecov][codecov-src]][codecov-href]
 [![License][license-src]][license-href]
 
-Feature-gated utilities for Rust services: an async-worker `tracing` logger, Tokio task management with graceful shutdown, and small concurrency helpers.
+Feature-gated utilities for Rust services: a `tracing` logger with background writer threads, Tokio task management with graceful shutdown, and small concurrency helpers.
 
 - [✨ Release Notes](./CHANGELOG.md)
 
