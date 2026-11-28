@@ -17,6 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         os:
+          - macos-latest
           - ubuntu-latest
           - windows-latest
 
@@ -37,7 +38,7 @@ jobs:
       - name: Install cargo-llvm-cov and mold
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-llvm-cov,mold
+          tool: ${{ runner.os == 'Linux' && 'cargo-llvm-cov,mold' || 'cargo-llvm-cov' }}
 
       - name: Run tests with coverage
         run: cargo coverage
@@ -54,3 +55,32 @@ jobs:
           files: ./lcov.info
           flags: rust
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  msrv:
+    name: Rust / MSRV
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # The repo's toolchain file and Cargo config are nightly-only and are not published, so drop them to build
+      # as a downstream user on `rust-version` would.
+      - name: Remove nightly-only config
+        run: rm .cargo/config.toml rust-toolchain.toml
+
+      - name: Read rust-version
+        id: msrv
+        run: echo "version=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          cache: false
+          toolchain: ${{ steps.msrv.outputs.version }}
+
+      # Default targets (lib and bins) only: tests may use APIs newer than `rust-version`.
+      - name: Check
+        run: cargo check --all-features
