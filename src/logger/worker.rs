@@ -79,7 +79,7 @@ struct DroppedNotifier {
 }
 
 impl DroppedNotifier {
-    fn flush(&mut self, sink: &mut impl LogSink) {
+    fn report_and_flush(&mut self, sink: &mut impl LogSink) {
         let dropped = self.dropped.load(Ordering::Relaxed);
         if dropped > self.reported {
             self.write_notice(sink, dropped);
@@ -154,12 +154,12 @@ fn run_worker(
         while let Some(command) = next_command.take() {
             match command {
                 LoggerCommand::Flush(ack_sender) => {
-                    dropped_notifier.flush(&mut sink);
+                    dropped_notifier.report_and_flush(&mut sink);
                     unflushed = false;
                     let _ = ack_sender.send(());
                 },
                 LoggerCommand::Shutdown => {
-                    dropped_notifier.flush(&mut sink);
+                    dropped_notifier.report_and_flush(&mut sink);
                     return;
                 },
                 LoggerCommand::Write(bytes) => {
@@ -175,7 +175,7 @@ fn run_worker(
         }
 
         if unflushed {
-            dropped_notifier.flush(&mut sink);
+            dropped_notifier.report_and_flush(&mut sink);
         }
     }
 }

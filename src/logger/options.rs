@@ -295,8 +295,9 @@ impl LoggerInitOptions {
             None
         };
 
-        let file_output = if env.bool(ENV_LOGGER_FILE_ENABLED, env.value(ENV_LOGGER_FILE_DIR).is_some())? {
-            let Some(base_dir) = env.value(ENV_LOGGER_FILE_DIR) else {
+        let file_dir = env.value(ENV_LOGGER_FILE_DIR);
+        let file_output = if env.bool(ENV_LOGGER_FILE_ENABLED, file_dir.is_some())? {
+            let Some(base_dir) = file_dir else {
                 bail!("{ENV_LOGGER_FILE_DIR} is required when file logging is enabled");
             };
 
@@ -314,7 +315,7 @@ impl LoggerInitOptions {
             queue: LoggerQueueOptions {
                 capacity: env.parse(
                     ENV_LOGGER_QUEUE_CAPACITY,
-                    "a positive integer up to 1048576",
+                    &format!("a positive integer up to {}", LoggerQueueOptions::MAX_CAPACITY),
                     DEFAULT_QUEUE_CAPACITY,
                     parse_queue_capacity,
                 )?,

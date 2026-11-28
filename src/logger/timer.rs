@@ -49,7 +49,6 @@ thread_local! {
 /// system lookup per event. A changed system time zone is only picked up after a restart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct LoggerTimer {
-    /// Used when a local offset lookup fails.
     fallback_offset: UtcOffset,
     include_offset: bool,
     time_zone: LoggerTimeZone,

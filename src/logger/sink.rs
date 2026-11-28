@@ -71,7 +71,7 @@ impl ConsoleSink {
 
 pub(super) struct FileSink {
     base_dir: Path,
-    files: Vec<SinkFile>,
+    files: Vec<BufWriter<File>>,
     key_indexes: FxHashMap<String, usize>,
     target_indexes: FxHashMap<Box<[u8]>, usize>,
 }
@@ -79,7 +79,7 @@ pub(super) struct FileSink {
 impl LogSink for FileSink {
     fn flush(&mut self) {
         for file in &mut self.files {
-            let _ = file.writer.flush();
+            let _ = file.flush();
         }
     }
 
@@ -104,7 +104,7 @@ impl LogSink for FileSink {
 impl FileSink {
     pub(super) fn new(base_dir: Path) -> Result<Self> {
         base_dir.create_dir_all_sync()?;
-        let fallback = SinkFile::open(&(&base_dir / format!("{FALLBACK_LOG_KEY}.log")))?;
+        let fallback = open_file(&(&base_dir / format!("{FALLBACK_LOG_KEY}.log")))?;
 
         // A target named `_fallback` must share the fallback handle instead of opening the file twice.
         let mut key_indexes = FxHashMap::default();
@@ -125,7 +125,7 @@ impl FileSink {
             None => self.resolve_target(target),
         };
 
-        let _ = self.files[index].writer.write_all(line);
+        let _ = self.files[index].write_all(line);
     }
 
     /// Open failures are cached as the fallback file.
@@ -133,7 +133,7 @@ impl FileSink {
         let key = target_to_key(&String::from_utf8_lossy(target));
         let index = match self.key_indexes.get(&key) {
             Some(&index) => index,
-            None => match SinkFile::open(&(&self.base_dir / format!("{key}.log"))) {
+            None => match open_file(&(&self.base_dir / format!("{key}.log"))) {
                 Ok(file) => {
                     self.files.push(file);
                     let index = self.files.len() - 1;
@@ -149,22 +149,13 @@ impl FileSink {
     }
 }
 
-struct SinkFile {
-    writer: BufWriter<File>,
-}
-
-impl SinkFile {
-    fn open(path: &Path) -> Result<Self> {
-        path.create_parent_dir_all_sync()?;
-        let file = OpenOptions::new().create(true).append(true).open(path)?;
-
-        Ok(Self {
-            writer: BufWriter::with_capacity(FILE_BUFFER_CAPACITY, file),
-        })
-    }
-}
-
 // Functions
+fn open_file(path: &Path) -> Result<BufWriter<File>> {
+    path.create_parent_dir_all_sync()?;
+    let file = OpenOptions::new().create(true).append(true).open(path)?;
+    Ok(BufWriter::with_capacity(FILE_BUFFER_CAPACITY, file))
+}
+
 fn sanitize_target_segment(value: &str) -> String {
     value
         .chars()
