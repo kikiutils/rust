@@ -15,6 +15,16 @@ use tokio_util::{
     task::TaskTracker,
 };
 
+// Enums
+#[cfg(feature = "signal")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ShutdownOutcome {
+    Completed,
+    TimedOut,
+    Forced(crate::signal::ShutdownSignal),
+}
+
 // Structs
 
 /// Tracks spawned tasks and hands each [`spawn_with_token`](Self::spawn_with_token) task a child of
@@ -69,6 +79,37 @@ impl TaskManager {
                 root.cancel();
                 Ok(Some(signal))
             },
+        }
+    }
+
+    /// Waits like [`cancel_on_shutdown_signal`](Self::cancel_on_shutdown_signal), then cancels the
+    /// manager and waits up to `grace` for its tasks. A second shutdown signal during the grace period
+    /// returns [`ShutdownOutcome::Forced`] at once; that signal does not terminate the process by
+    /// itself, so the caller should exit. Failing to listen for the second signal is ignored. Remaining
+    /// tasks keep running and stay tracked.
+    ///
+    /// On Windows, the system still ends the process a few seconds after
+    /// [`CtrlClose`](crate::signal::ShutdownSignal::CtrlClose) or
+    /// [`CtrlShutdown`](crate::signal::ShutdownSignal::CtrlShutdown), whatever `grace` is.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the first wait cannot register the signal handlers.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the runtime has no time driver.
+    #[cfg(feature = "signal")]
+    pub async fn shutdown_on_signal(&self, grace: Duration) -> std::io::Result<ShutdownOutcome> {
+        self.cancel_on_shutdown_signal().await?;
+        tokio::select! {
+            // A signal that arrived before the deadline wins over a timeout seen in the same poll.
+            biased;
+            Ok(signal) = crate::signal::wait_for_shutdown_signal() => Ok(ShutdownOutcome::Forced(signal)),
+            result = self.shutdown_with_timeout(grace) => Ok(match result {
+                Ok(()) => ShutdownOutcome::Completed,
+                Err(_) => ShutdownOutcome::TimedOut,
+            }),
         }
     }
 

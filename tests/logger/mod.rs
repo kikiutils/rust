@@ -209,6 +209,7 @@ fn has_timestamp_prefix(line: &str) -> bool {
 fn unique_temp_dir() -> Path {
     // Tests run in parallel and the clock can be coarse (100 ns on Windows), so the time alone may repeat.
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or_default(|duration| duration.as_nanos());
