@@ -201,6 +201,10 @@ impl LoggerGuard {
     }
 
     /// Waits until all log messages queued before this call have been written by the background workers.
+    ///
+    /// # Errors
+    ///
+    /// Fails if a worker thread has panicked.
     pub fn flush(&self) -> Result<()> {
         for worker in &self.workers {
             worker.flush()?;
@@ -209,6 +213,10 @@ impl LoggerGuard {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Fails at the first worker thread that panicked; the remaining workers are still shut down when the
+    /// guard drops.
     pub fn shutdown(mut self) -> Result<()> {
         for worker in &mut self.workers {
             worker.shutdown()?;
@@ -227,6 +235,12 @@ impl LoggerGuard {
 /// [`SubscriberInitExt::try_init`](tracing_subscriber::util::SubscriberInitExt::try_init) also installs the
 /// `log` bridge, so events from the `log` crate keep reaching the logger, while
 /// `tracing::subscriber::set_global_default` does not.
+///
+/// # Errors
+///
+/// Fails before spawning any worker when the queue capacity is above
+/// [`LoggerQueueOptions::MAX_CAPACITY`] or a filter is invalid, and fails when the file output cannot
+/// create its base directory or `_fallback.log`.
 ///
 /// # Example
 ///
@@ -325,8 +339,13 @@ where
 }
 
 /// Builds the logger with [`build_logger`] and installs it as the global subscriber, together with the
-/// `log` bridge. Fails without creating directories or workers when a default subscriber is already set,
-/// either globally or scoped on the calling thread.
+/// `log` bridge.
+///
+/// # Errors
+///
+/// Fails without creating directories or workers when a default subscriber is already set, either
+/// globally or scoped on the calling thread. Also fails when a `log` logger is already set; by then the file
+/// output may have created its directories, and the workers stop with the dropped guard.
 ///
 /// # Example
 ///
