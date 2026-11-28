@@ -141,8 +141,8 @@ missing_crate_level_docs = "allow"
 [features]
 default = []
 
-# Convenience aliases.
-all = [
+# Enables every feature.
+full = [
   "atomic-enum-cell",
   "fx-collections",
   "global-allocator",
@@ -151,8 +151,6 @@ all = [
   "signal",
   "task",
 ]
-
-full = ["all"]
 
 # Example:
 # serde = ["dep:serde"]
