@@ -1,6 +1,11 @@
 use std::{
     env,
     num::NonZeroUsize,
+    process,
+    sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    },
     time::{
         SystemTime,
         UNIX_EPOCH,
@@ -12,6 +17,7 @@ use anyhow::{
     Result,
 };
 use kikiutils::logger::{
+    build_logger,
     init_logger,
     options::{
         LoggerAnsiMode,
@@ -32,6 +38,10 @@ use tracing::{
     Level,
     event,
     span,
+};
+use tracing_subscriber::{
+    Registry,
+    layer::SubscriberExt,
 };
 
 #[test]
@@ -115,6 +125,13 @@ fn init_logger_writes_filtered_events_to_target_files() -> Result<()> {
 
     assert!(!(&log_dir / "logger_integration" / "muted.log").exists_sync()?);
 
+    let second_dir = unique_temp_dir();
+    let second =
+        init_logger(LoggerInitOptions::default().with_file_output(LoggerFileOutputOptions::new(second_dir.clone())));
+
+    assert!(second.is_err(), "a second init must fail");
+    assert!(!second_dir.exists_sync()?);
+
     event!(target: "logger_integration::shutdown", Level::INFO, "before shutdown");
     assert_eq!(logger_guard.dropped_count(), 0);
     logger_guard.shutdown()?;
@@ -126,6 +143,53 @@ fn init_logger_writes_filtered_events_to_target_files() -> Result<()> {
     );
 
     log_dir.remove_dir_all_sync()?;
+
+    Ok(())
+}
+
+#[test]
+fn build_logger_rejects_oversized_queue_without_side_effects() -> Result<()> {
+    let log_dir = unique_temp_dir();
+    let capacity = NonZeroUsize::new(LoggerQueueOptions::MAX_CAPACITY + 1).context("capacity must be non-zero")?;
+    let result = build_logger::<Registry>(
+        LoggerInitOptions::default()
+            .with_file_output(LoggerFileOutputOptions::new(log_dir.clone()))
+            .with_queue(LoggerQueueOptions::default().with_capacity(capacity)),
+    );
+
+    assert!(result.is_err());
+    assert!(!log_dir.exists_sync()?);
+
+    Ok(())
+}
+
+#[test]
+fn dropping_guard_flushes_and_later_events_do_not_block() -> Result<()> {
+    let log_dir = unique_temp_dir();
+    let (layer, logger_guard) = build_logger(
+        LoggerInitOptions::default()
+            .without_console_output()
+            .with_file_output(LoggerFileOutputOptions::new(log_dir.clone()))
+            .with_queue(
+                LoggerQueueOptions::default()
+                    .with_capacity(NonZeroUsize::MIN)
+                    .with_full_policy(LoggerQueueFullPolicy::Block),
+            ),
+    )?;
+
+    let subscriber = Registry::default().with(layer);
+    tracing::subscriber::with_default(subscriber, || {
+        event!(target: "scoped::drop", Level::INFO, "before drop");
+        drop(logger_guard);
+        // The worker is gone, so a blocking queue must fail fast instead of waiting forever.
+        event!(target: "scoped::drop", Level::INFO, "after drop");
+        event!(target: "scoped::drop", Level::INFO, "after drop again");
+    });
+
+    let content = (&log_dir / "scoped" / "drop.log").read_to_string_sync()?;
+    log_dir.remove_dir_all_sync()?;
+    assert!(content.ends_with(" INFO scoped::drop: before drop\n"), "{content:?}");
+    assert_eq!(content.lines().count(), 1, "{content:?}");
 
     Ok(())
 }
@@ -143,9 +207,12 @@ fn has_timestamp_prefix(line: &str) -> bool {
 }
 
 fn unique_temp_dir() -> Path {
+    // Tests run in parallel and the clock can be coarse (100 ns on Windows), so the time alone may repeat.
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or_default(|duration| duration.as_nanos());
 
-    path!(env::temp_dir()) / format!("kikiutils-logger-integration-{nanos}")
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
+    path!(env::temp_dir()) / format!("kikiutils-logger-integration-{}-{nanos}-{count}", process::id())
 }

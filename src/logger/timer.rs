@@ -181,7 +181,7 @@ mod tests {
     fn local_offset_follows_daylight_saving() {
         use std::{
             env,
-            process::Command,
+            process,
         };
 
         use time::macros::{
@@ -206,7 +206,7 @@ mod tests {
             return;
         }
 
-        let output = Command::new(env::current_exe().unwrap())
+        let output = process::Command::new(env::current_exe().unwrap())
             .args(["--exact", "logger::timer::tests::local_offset_follows_daylight_saving"])
             .env(CHILD_ENV, "1")
             // A POSIX rule string, so the test does not depend on installed time zone data.

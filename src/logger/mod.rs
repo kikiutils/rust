@@ -51,6 +51,7 @@ use tracing_subscriber::{
 
 pub mod options;
 mod queue;
+mod sink;
 mod timer;
 mod worker;
 
@@ -59,13 +60,16 @@ use self::{
         LoggerAnsiMode,
         LoggerConsoleStream,
         LoggerInitOptions,
+        LoggerQueueOptions,
+    },
+    sink::{
+        ConsoleSink,
+        FileSink,
+        TARGET_SEPARATOR,
     },
     timer::LoggerTimer,
     worker::{
-        ConsoleSink,
-        FileSink,
         LoggerWorkerGuard,
-        TARGET_SEPARATOR,
         spawn_worker,
     },
 };
@@ -238,7 +242,15 @@ pub fn build_logger<S>(options: LoggerInitOptions) -> Result<(Box<dyn Layer<S> +
 where
     S: tracing::Subscriber + for<'a> LookupSpan<'a>,
 {
-    // Parse every filter before spawning workers so invalid directives fail without side effects.
+    // Validate everything before spawning workers so invalid options fail without side effects.
+    if options.queue.capacity.get() > LoggerQueueOptions::MAX_CAPACITY {
+        bail!(
+            "logger queue capacity {} exceeds the maximum of {}",
+            options.queue.capacity,
+            LoggerQueueOptions::MAX_CAPACITY
+        );
+    }
+
     let console = options
         .console_output
         .map(|console| parse_filter(&console.filter, "console").map(|filter| (console, filter)))
@@ -325,7 +337,7 @@ pub fn init_logger(options: LoggerInitOptions) -> Result<LoggerGuard> {
     // `tracing::dispatcher::has_been_set` also turns true after any scoped default, so ask for the default
     // dispatcher instead; inside a scoped default this sees the scoped subscriber.
     if dispatcher::get_default(|dispatch| !dispatch.is::<NoSubscriber>()) {
-        bail!("failed to initialize tracing subscriber: a global default subscriber is already set");
+        bail!("failed to initialize tracing subscriber: a default subscriber is already set");
     }
 
     let (layer, logger_guard) = build_logger::<Registry>(options)?;
@@ -386,6 +398,7 @@ mod tests {
         let options = LoggerInitOptions::default()
             .without_console_output()
             .without_file_output();
+
         let (logger_layer, logger_guard) = build_logger(options).unwrap();
         let events = Arc::new(AtomicUsize::new(0));
         let subscriber = registry().with(logger_layer).with(CountingLayer(Arc::clone(&events)));

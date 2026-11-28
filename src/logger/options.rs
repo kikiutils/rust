@@ -53,7 +53,11 @@ pub enum LoggerConsoleStream {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LoggerQueueFullPolicy {
+    /// The thread emitting the event waits for queue space, which also stalls an async runtime worker
+    /// thread that logs.
     Block,
+    /// Dropped events are counted in [`LoggerGuard::dropped_count`](super::LoggerGuard::dropped_count);
+    /// while the worker runs, it also reports them with a `WARN kikiutils::logger` line.
     #[default]
     DropNewest,
 }
@@ -140,9 +144,12 @@ impl LoggerFileOutputOptions {
     }
 }
 
+/// Each output gets its own queue.
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub struct LoggerQueueOptions {
+    /// The queue preallocates every slot, so building the logger rejects values above
+    /// [`MAX_CAPACITY`](Self::MAX_CAPACITY).
     pub capacity: NonZeroUsize,
     pub full_policy: LoggerQueueFullPolicy,
 }
@@ -157,6 +164,8 @@ impl Default for LoggerQueueOptions {
 }
 
 impl LoggerQueueOptions {
+    pub const MAX_CAPACITY: usize = 1_048_576;
+
     // Public methods
     #[must_use]
     pub fn with_capacity(mut self, capacity: NonZeroUsize) -> Self {
@@ -240,7 +249,7 @@ impl LoggerInitOptions {
     /// - `LOGGER_FILE_DIR`: required for file output
     /// - `LOGGER_FILE_ENABLED`: defaults to true when `LOGGER_FILE_DIR` is set
     /// - `LOGGER_FILE_FILTER`: file filter directives, overrides `RUST_LOG`
-    /// - `LOGGER_QUEUE_CAPACITY`: a positive integer
+    /// - `LOGGER_QUEUE_CAPACITY`: a positive integer up to [`LoggerQueueOptions::MAX_CAPACITY`]
     /// - `LOGGER_QUEUE_FULL_POLICY`: `block` or `drop_newest`
     /// - `LOGGER_TIMESTAMP_OFFSET`: a boolean
     /// - `LOGGER_TIMESTAMP_TIME_ZONE`: `local` or `utc`
@@ -248,7 +257,7 @@ impl LoggerInitOptions {
     /// Booleans are `1`, `true`, `yes`, `y`, `on` or `0`, `false`, `no`, `n`, `off`. Values are trimmed and
     /// case-insensitive, and blank values count as unset.
     ///
-    /// Filter directives are validated by [`init_logger`](super::init_logger).
+    /// Filter directives are validated when the logger is built.
     pub fn from_env() -> Result<Self> {
         Self::from_env_with_default_filter(DEFAULT_FILTER)
     }
@@ -305,9 +314,9 @@ impl LoggerInitOptions {
             queue: LoggerQueueOptions {
                 capacity: env.parse(
                     ENV_LOGGER_QUEUE_CAPACITY,
-                    "a positive integer",
+                    "a positive integer up to 1048576",
                     DEFAULT_QUEUE_CAPACITY,
-                    |value| value.parse().ok(),
+                    parse_queue_capacity,
                 )?,
                 full_policy: env.parse(
                     ENV_LOGGER_QUEUE_FULL_POLICY,
@@ -404,6 +413,13 @@ fn parse_console_stream(value: &str) -> Option<LoggerConsoleStream> {
         "stderr" => Some(LoggerConsoleStream::Stderr),
         _ => None,
     }
+}
+
+fn parse_queue_capacity(value: &str) -> Option<NonZeroUsize> {
+    value
+        .parse()
+        .ok()
+        .filter(|capacity: &NonZeroUsize| capacity.get() <= LoggerQueueOptions::MAX_CAPACITY)
 }
 
 fn parse_queue_full_policy(value: &str) -> Option<LoggerQueueFullPolicy> {
@@ -566,6 +582,9 @@ mod tests {
         let options = from_pairs(&[(ENV_LOGGER_QUEUE_CAPACITY, " 256 ")])?;
         assert_eq!(options.queue.capacity.get(), 256);
 
+        let options = from_pairs(&[(ENV_LOGGER_QUEUE_CAPACITY, "1048576")])?;
+        assert_eq!(options.queue.capacity.get(), LoggerQueueOptions::MAX_CAPACITY);
+
         let options = from_pairs(&[(ENV_LOGGER_TIMESTAMP_OFFSET, "yes")])?;
         assert!(options.timestamp.include_offset);
         assert_eq!(options.timestamp.time_zone, LoggerTimeZone::Local);
@@ -597,6 +616,7 @@ mod tests {
         assert!(from_pairs(&[(ENV_LOGGER_CONSOLE_ENABLED, "maybe")]).is_err());
         assert!(from_pairs(&[(ENV_LOGGER_QUEUE_CAPACITY, "-1")]).is_err());
         assert!(from_pairs(&[(ENV_LOGGER_QUEUE_CAPACITY, "0")]).is_err());
+        assert!(from_pairs(&[(ENV_LOGGER_QUEUE_CAPACITY, "1048577")]).is_err());
         assert!(from_pairs(&[(ENV_LOGGER_QUEUE_FULL_POLICY, "wait")]).is_err());
         assert!(from_pairs(&[(ENV_LOGGER_CONSOLE_ANSI, "sometimes")]).is_err());
         assert!(from_pairs(&[(ENV_LOGGER_TIMESTAMP_TIME_ZONE, "gmt")]).is_err());
