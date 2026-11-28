@@ -154,3 +154,17 @@ async fn shutdown_with_timeout_reports_tasks_that_ignore_cancel() {
     manager.wait().await;
     assert!(manager.is_empty());
 }
+
+#[test]
+fn shutdown_with_timeout_panics_before_cancelling_without_time_driver() {
+    let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    let manager = TaskManager::new();
+    let token = manager.token();
+    let shutdown = runtime.spawn({
+        let manager = manager.clone();
+        async move { manager.shutdown_with_timeout(COMPLETION_TIMEOUT).await }
+    });
+
+    assert!(runtime.block_on(shutdown).unwrap_err().is_panic());
+    assert!(!token.is_cancelled());
+}

@@ -182,28 +182,46 @@ fn run_worker(
 
 #[cfg(test)]
 mod tests {
-
     use super::{
         super::options::LoggerTimestampOptions,
         *,
     };
 
-    struct RecordingSink(Arc<std::sync::Mutex<Vec<String>>>);
+    /// Records each event, and each flush as `None`.
+    struct RecordingSink(Arc<std::sync::Mutex<Vec<Option<String>>>>);
 
     impl LogSink for RecordingSink {
-        fn flush(&mut self) {}
+        fn flush(&mut self) {
+            if let Ok(mut entries) = self.0.lock() {
+                entries.push(None);
+            }
+        }
 
         fn write_event(&mut self, event: &[u8]) {
-            if let Ok(mut lines) = self.0.lock() {
-                lines.push(String::from_utf8_lossy(event).into_owned());
+            if let Ok(mut entries) = self.0.lock() {
+                entries.push(Some(String::from_utf8_lossy(event).into_owned()));
             }
         }
     }
 
+    fn run(receiver: &std::sync::mpsc::Receiver<LoggerCommand>, dropped: u64) -> Result<Vec<Option<String>>> {
+        let entries = Arc::new(std::sync::Mutex::new(Vec::new()));
+        run_worker(
+            receiver,
+            RecordingSink(Arc::clone(&entries)),
+            DroppedNotifier {
+                dropped: Arc::new(AtomicU64::new(dropped)),
+                reported: 0,
+                timer: LoggerTimer::new(LoggerTimestampOptions::default()),
+            },
+        );
+
+        let entries = entries.lock().map_err(|_| anyhow!("recording sink lock poisoned"))?;
+        Ok(entries.clone())
+    }
+
     #[test]
     fn worker_reports_newly_dropped_events_once() -> Result<()> {
-        let lines = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let dropped = Arc::new(AtomicU64::new(3));
         let (sender, receiver) = std::sync::mpsc::sync_channel(4);
         let (ack_sender, ack_receiver) = std::sync::mpsc::sync_channel(4);
         sender.send(LoggerCommand::Flush(ack_sender.clone()))?;
@@ -211,23 +229,36 @@ mod tests {
         drop(ack_sender);
         sender.send(LoggerCommand::Shutdown)?;
 
-        run_worker(
-            &receiver,
-            RecordingSink(Arc::clone(&lines)),
-            DroppedNotifier {
-                dropped,
-                reported: 0,
-                timer: LoggerTimer::new(LoggerTimestampOptions::default()),
-            },
-        );
+        let entries = run(&receiver, 3)?;
 
         assert_eq!(ack_receiver.try_iter().count(), 2);
-        let lines = lines.lock().map_err(|_| anyhow!("recording sink lock poisoned"))?;
-        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert_eq!(entries.len(), 4, "{entries:?}");
         assert!(
-            lines[0].ends_with("  WARN kikiutils::logger: dropped 3 log events because the queue was full\n"),
-            "{lines:?}"
+            entries[0]
+                .as_deref()
+                .is_some_and(|line| line
+                    .ends_with("  WARN kikiutils::logger: dropped 3 log events because the queue was full\n")),
+            "{entries:?}"
         );
+
+        assert!(entries[1..].iter().all(Option::is_none), "{entries:?}");
+
+        Ok(())
+    }
+
+    #[test]
+    fn worker_flushes_a_batch_that_reaches_the_command_limit() -> Result<()> {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(MAX_BATCH_COMMANDS + 2);
+        for _ in 0..=MAX_BATCH_COMMANDS {
+            sender.send(LoggerCommand::Write(b"event\n".to_vec()))?;
+        }
+
+        sender.send(LoggerCommand::Shutdown)?;
+
+        let entries = run(&receiver, 0)?;
+
+        assert_eq!(entries.iter().position(Option::is_none), Some(MAX_BATCH_COMMANDS));
+        assert_eq!(entries.len(), MAX_BATCH_COMMANDS + 3);
 
         Ok(())
     }

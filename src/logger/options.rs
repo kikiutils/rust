@@ -615,15 +615,19 @@ mod tests {
 
     #[test]
     fn from_env_rejects_invalid_values() {
-        assert!(from_pairs(&[(ENV_LOGGER_FILE_ENABLED, "true")]).is_err());
-        assert!(from_pairs(&[(ENV_LOGGER_CONSOLE_STREAM, "stdin")]).is_err());
-        assert!(from_pairs(&[(ENV_LOGGER_CONSOLE_ENABLED, "maybe")]).is_err());
-        assert!(from_pairs(&[(ENV_LOGGER_QUEUE_CAPACITY, "-1")]).is_err());
-        assert!(from_pairs(&[(ENV_LOGGER_QUEUE_CAPACITY, "0")]).is_err());
-        assert!(from_pairs(&[(ENV_LOGGER_QUEUE_CAPACITY, "1048577")]).is_err());
-        assert!(from_pairs(&[(ENV_LOGGER_QUEUE_FULL_POLICY, "wait")]).is_err());
-        assert!(from_pairs(&[(ENV_LOGGER_CONSOLE_ANSI, "sometimes")]).is_err());
-        assert!(from_pairs(&[(ENV_LOGGER_TIMESTAMP_TIME_ZONE, "gmt")]).is_err());
-        assert!(from_pairs(&[(ENV_LOGGER_TIMESTAMP_OFFSET, "maybe")]).is_err());
+        for (key, value) in [
+            (ENV_LOGGER_FILE_ENABLED, "true"),
+            (ENV_LOGGER_CONSOLE_STREAM, "stdin"),
+            (ENV_LOGGER_CONSOLE_ENABLED, "maybe"),
+            (ENV_LOGGER_QUEUE_CAPACITY, "-1"),
+            (ENV_LOGGER_QUEUE_CAPACITY, "0"),
+            (ENV_LOGGER_QUEUE_CAPACITY, "1048577"),
+            (ENV_LOGGER_QUEUE_FULL_POLICY, "wait"),
+            (ENV_LOGGER_CONSOLE_ANSI, "sometimes"),
+            (ENV_LOGGER_TIMESTAMP_TIME_ZONE, "gmt"),
+            (ENV_LOGGER_TIMESTAMP_OFFSET, "maybe"),
+        ] {
+            assert!(from_pairs(&[(key, value)]).is_err(), "{key}={value:?}");
+        }
     }
 }
